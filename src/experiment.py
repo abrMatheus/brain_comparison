@@ -81,16 +81,15 @@ class LitModel(pl.LightningModule):
             global_step=self.global_step
         )
         
-    def forward(self, x: th.Tensor) -> th.Tensor:
-        return self.model.forward(x)
+    def forward(self, xf: th.Tensor, xt1: th.Tensor) -> th.Tensor:
+        return self.model.forward(xf, xt1)
 
     def _step(self, batch: Tuple[th.Tensor], mode: str) -> Any:
-        y = batch[1]
+        y   = batch[2]
+        xt1 = batch[1]
+        xf  = batch[0]
 
-        x = batch[0]
-
-
-        y_hat = self.forward(x)
+        y_hat = self.forward(xf, xt1)
         y_hat = self._maybe_resize(y_hat, y.shape)
         loss, acc = UnetLoss(y_hat, y)
         
@@ -113,8 +112,8 @@ class LitModel(pl.LightningModule):
             self.log_dict(metrics)
             if self.global_rank == 0:
                 preds = logits.argmax(dim=1)
-                self._add_gif(x[0,:1], f'{mode}/flair')
-                #self._add_gif(x[:1, 1], f'{mode}/t1ce')
+                self._add_gif(xf[0, :1], f'{mode}/flair')
+                self._add_gif(xt1[0, :1], f'{mode}/t1ce')
                 self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
                 self._add_gif(self._color_mask(preds[0]), f'{mode}/pred')
             
@@ -142,11 +141,15 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     #input_shape = [H, W, C] or [C]
     encoder = utils.build_model(arch, input_shape=[3])
+    encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
 
-    encoder = utils.load_weights_from_lids_model(encoder, parampath)
+
+    encoder2 = utils.build_model(arch, input_shape=[3])
+    encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
+
 
     num_classes = 2
-    u_net = UNet(encoder=encoder, out_channels=num_classes)
+    u_net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=num_classes)
 
     # model = u_net.to(device)
     # criterion = UnetLoss
@@ -169,13 +172,13 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp/',
+        dirpath='exp_2/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
         save_top_k=1,
         mode='max',
     )
 
-    logger = TensorBoardLogger('logs', name=exp_name)
+    logger = TensorBoardLogger('logs_2', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -191,6 +194,6 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 if __name__ == '__main__':
 
-    run_experiment(datapath='/dados/matheus/git/u-net-with-flim2/brain3d_50',batchsize=1, archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
-                    parampath='/dados/matheus/git/u-net-with-flim2/brain3d-param',
-                    n_epochs=35, exp_name='test')
+    run_experiment(datapath='/dados/matheus/git/u-net-with-flim2/brain3d_50_both',batchsize=1, archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
+                    parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+                    n_epochs=70, exp_name='test_2encoders_70e')

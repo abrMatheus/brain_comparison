@@ -36,15 +36,18 @@ class SegmDataset(Dataset):
         self._load_dataset_info()
 
     def __getitem__(self, index):
-        image_path = os.path.join(self._root_dir, "images", f"{self._image_names[index]}.nii.gz")
+        flair_path = os.path.join(self._root_dir, "flair", f"{self._image_names[index]}.nii.gz")
+        t1gd_path = os.path.join(self._root_dir, "t1gd", f"{self._image_names[index]}.nii.gz")
 
         if self._gts:
             label_path = os.path.join(self._root_dir, "gts", f"{self._gt_names[index]}.nii.gz")
         else:
             label_path = os.path.join(self._root_dir, "markers", f"{self._markers_names[index]}.txt")
     
-        image = utils.load_image(image_path)
-        image = image.transpose((3, 0, 1, 2))
+        flair_img = utils.load_image(flair_path)
+        flair_img = flair_img.transpose((3, 0, 1, 2))
+        t1gd_img = utils.load_image(t1gd_path)
+        t1gd_img = t1gd_img.transpose((3, 0, 1, 2))
         
         label_image = self._load_label_image(label_path)
 
@@ -56,21 +59,24 @@ class SegmDataset(Dataset):
             label_image = label_image - 1
 
         if(self._transform):
-            image = self._transform(image)
-        sample = (image, label_image.astype(np.int64))
+            flair_img = self._transform(flair_img)
+            t1gd_img = self._transform(t1gd_img)
+            
+        sample = (flair_img, t1gd_img, label_image.astype(np.int64))
         
         return sample 
 
     def _load_dataset_info(self):
         if path.exists(self._root_dir):
-            images_path = path.join(self._root_dir, "images")
+            flair_path = path.join(self._root_dir, "flair")
+            t1gd_path = path.join(self._root_dir, "t1gd")
             if self._gts:
                 gts_path = path.join(self._root_dir, "gts")
             else:
                 markers_path = path.join(self._root_dir, "markers")
 
-            if path.exists(images_path):
-                self._image_names = [int(name.split('.')[0]) for name in os.listdir(images_path)]
+            if path.exists(flair_path) and path.exists(t1gd_path):
+                self._image_names = [int(name.split('.')[0]) for name in os.listdir(flair_path)]
                 self._image_names.sort()
 
                 if self._gts:
@@ -80,8 +86,10 @@ class SegmDataset(Dataset):
                     self._markers_names = [int(name.split('.')[0]) for name in os.listdir(markers_path)]
                     self._markers_names.sort()
 
+            elif not path.exists(flair_path):
+                raise ValueError(f"{flair_path} does not exists")
             else:
-                raise ValueError(f"{images_path} does not exists")
+                raise ValueError(f"{t1gd_path} does not exists")
         else:
             raise ValueError(f"{self._root_dir} does not exists, dumb ass")
 
@@ -105,9 +113,7 @@ class SegmDataset(Dataset):
             
             assert (label_image != 0).sum() == label_infos[0], "There are zero markers. Be careful!!"
         else:
-            # label_image = np.array(Image.open(label_path))
-            # label_image =  utils.load_image(label_path)
-            # torchio perfomou melhor
+            
             label_image = np.array(tio.LabelMap(label_path))
             
         return label_image

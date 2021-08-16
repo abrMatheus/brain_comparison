@@ -103,25 +103,49 @@ def _layers_before_downscale(model):
     return layer_names, last_out_channels
 
 class UNet(nn.Module):
-    def __init__(self, encoder, out_channels=2):
+    def __init__(self, encoder1, encoder2, out_channels=2):
         super().__init__()
 
-        self.encoder = encoder
+        
+        #111111
+        self.encoder1 = encoder1
 
-        encoder_block_names, block_out_channels = _layers_before_downscale(encoder)
+        encoder_block_names1, block_out_channels1 = _layers_before_downscale(encoder1)
 
-        layer_names = {layer_name: layer_name for layer_name in encoder_block_names[:-1]}
-        layer_names[encoder_block_names[-1]] = "bottleneck"
+        layer_names = {layer_name: layer_name for layer_name in encoder_block_names1[:-1]}
+        layer_names[encoder_block_names1[-1]] = "bottleneck"
 
-        self._encoder_blocks = IntermediateLayerGetter(self.encoder, layer_names)
+        self._encoder_blocks1 = IntermediateLayerGetter(self.encoder1, layer_names)
 
+        
+            
+        #2222222
+        self.encoder2 = encoder2
+
+        encoder_block_names2, block_out_channels2 = _layers_before_downscale(encoder2)
+
+        layer_names = {layer_name: layer_name for layer_name in encoder_block_names2[:-1]}
+        layer_names[encoder_block_names2[-1]] = "bottleneck"
+
+        self._encoder_blocks2 = IntermediateLayerGetter(self.encoder2, layer_names)
+        
+        
+        
+        
+        
         self.decoder = nn.Module()
-
-        bottleneck_out_channels = block_out_channels[-1] * 2
-        self.decoder.add_module("conv_bottleneck", conv(block_out_channels[-1], bottleneck_out_channels))
+        
+        print(f"block output channels {block_out_channels1}")
+        
+        block_out_channels1 = [i*2 for i in block_out_channels1]
+        
+        print(f"block output channels {block_out_channels1}")
+        
+        bottleneck_out_channels = block_out_channels1[-1] * 2 
+        self.decoder.add_module("conv_bottleneck", conv(block_out_channels1[-1], bottleneck_out_channels))
 
         last_conv_out_channels = bottleneck_out_channels
-        for i, _out_channels in enumerate(reversed(block_out_channels[:-1])):
+        for i, _out_channels in enumerate(reversed(block_out_channels1[:-1])):
 
             self.decoder.add_module(f"up_conv{i}", up_conv(last_conv_out_channels, last_conv_out_channels//2))
             self.decoder.add_module(f"conv{i}", conv(last_conv_out_channels//2 + _out_channels, _out_channels))
@@ -130,19 +154,29 @@ class UNet(nn.Module):
         
         self.decoder.add_module("output_layer", nn.Conv3d(last_conv_out_channels, out_channels, kernel_size=1))
 
-    def forward(self, x):
-        encoder_outputs = self._encoder_blocks(x)
+    def forward(self, x1, x2):
+        encoder_outputs1 = self._encoder_blocks1(x1)
+        encoder_outputs2 = self._encoder_blocks2(x2)
 
-        block_names = reversed(encoder_outputs.keys())
+        block_names = reversed(encoder_outputs1.keys())
 
-        bottleneck = encoder_outputs[next(block_names)]
+        block_name = next(block_names)
+        bottleneck1 = encoder_outputs1[block_name]
+        bottleneck2 = encoder_outputs2[block_name]
 
-        x = bottleneck
+        #print(f'bneck1.shape {bottleneck1.shape} bneck2.shape {bottleneck2.shape}')
         
+        x = torch.cat([bottleneck1, bottleneck2], dim=1)
+        #print(f'x.shape {x.shape}')
+            
+            
         for name, layer in self.decoder.named_children():
             if "up_conv" in name:
-                block_output = encoder_outputs[(next(block_names))]
+                block_name = next(block_names)
+                block_output1 = encoder_outputs1[block_name]
+                block_output2 = encoder_outputs2[block_name]
                 x = layer(x)
+                block_output = torch.cat([block_output1, block_output2], dim=1)
                 if (not x.shape == block_output):
                     #caso tenha problemas com a diferença de tamanhos
                     diff=np.array(x.shape) - np.array(block_output.shape)
@@ -150,6 +184,8 @@ class UNet(nn.Module):
                     block_output = nn.functional.pad(block_output, p1d, "constant", 0)
                     
                 x = torch.cat([x, block_output], dim=1)
+                #print(f'name {name} layer {layer}')
+                #print(f'x.shape {x.shape}, b1.shape {block_output1.shape} b2.shape {block_output2.shape}')
             else:
                 x = layer(x)
 
