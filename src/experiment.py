@@ -12,6 +12,125 @@ from torch_snippets import *
 
 from model import UNet, UnetLoss, train_batch, validate_batch, get_device, IoU
 from dataloader import SegmDataset, ToTensor
+import torch as th
+
+
+from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from typing import Dict, Tuple, Any, Callable
+from metrics.metrics import multiclass_dice, multiclass_sensitivity
+from monai.visualize.img2tensorboard import add_animated_gif
+
+class LitModel(pl.LightningModule):
+    colormap = th.tensor([[0, 0, 0],
+                          [255, 0, 255],
+                          [0, 255, 255],
+                          [255, 128, 0]], dtype=th.uint8)
+
+    def __init__(self, model: th.nn.Module, optim: str, lr: float) -> None:
+        super().__init__()
+        self.model = model
+        self.optim = optim
+        self.lr = lr
+
+        self.class_weights = th.tensor([0.1, 1, 1, 1])
+    
+    def configure_optimizers(self):#necessario????
+        if self.optim.lower() == 'adam':
+            optim = th.optim.Adam(self.parameters(), lr=self.lr)
+        elif self.optim.lower() == 'sgd':
+            optim = th.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
+        else:
+            raise NotImplementedError
+        scheduler = th.optim.lr_scheduler.MultiStepLR(optim, milestones=[35, 45], gamma=0.25)
+        return {
+            'optimizer': optim,
+            'lr_scheduler': scheduler,
+            'monitor': 'val_loss',
+        }
+
+    @staticmethod
+    #necessario??
+    def _maybe_resize(x: th.Tensor, shape: Tuple[int]) -> th.Tensor:
+        if x.shape[-3:] != shape[-3:]:
+            x = F.interpolate(x, size=shape[-3:],
+                            mode="trilinear", align_corners=True)
+        return x
+
+    @staticmethod
+    #necessario??
+    def _get_2D_slice(x: th.Tensor) -> th.Tensor:
+        """ iteratively slice the array in the middle until it is 2D"""
+        x = x.cpu()
+        while x.ndim != 3:
+            x = x[0]
+        x = x[:, :, x.shape[2] // 2]
+        return x
+    
+    def _color_mask(self, x: th.Tensor) -> th.Tensor:
+        assert x.ndim == 3
+        return self.colormap[x].permute((3, 0, 1, 2))
+
+    def _add_gif(self, x: th.Tensor, tag: str) -> None:
+        add_animated_gif(
+            writer=self.logger.experiment,
+            tag=tag,
+            image_tensor=x.cpu(),
+            max_out=1,
+            scale_factor=1 if x.shape[0] == 3 else 255,
+            global_step=self.global_step
+        )
+        
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        return self.model.forward(x)
+
+    def _step(self, batch: Tuple[th.Tensor], mode: str) -> Any:
+        y = batch[1]
+
+        x = batch[0]
+
+
+        y_hat = self.forward(x)
+        y_hat = self._maybe_resize(y_hat, y.shape)
+        loss, acc = UnetLoss(y_hat, y)
+        
+        self.log(f'{mode}_loss', loss, on_epoch=True, on_step=True)
+        if mode == 'train':
+            return loss
+        elif mode == 'val':
+            logits = th.softmax(y_hat, dim=1)
+            dice   = multiclass_dice(logits, y)
+            prec   = multiclass_sensitivity(logits, y)
+            metrics = {
+                f'{mode}_WT_dice': dice[1],
+                #f'{mode}_TC_dice': dice[2],
+                #f'{mode}_ET_dice': dice[3],
+
+                f'{mode}_WT_sens': prec[1],
+                #f'{mode}_TC_sens': prec[2],
+                #f'{mode}_ET_sens': prec[3],
+            }
+            self.log_dict(metrics)
+            if self.global_rank == 0:
+                preds = logits.argmax(dim=1)
+                self._add_gif(x[0], f'{mode}/flair')
+                #self._add_gif(x[:1, 1], f'{mode}/t1ce')
+                self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
+                self._add_gif(self._color_mask(preds[0]), f'{mode}/pred')
+            
+            return metrics
+
+        else:
+            raise NotImplementedError
+    
+    def training_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> th.Tensor:
+        return self._step(batch, 'train')
+
+    def validation_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> Dict:
+        return self._step(batch, mode='val')
+
+    def test_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> th.Tensor:
+        return self._step(batch, mode='test')
 
 
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
@@ -29,10 +148,12 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     num_classes = 2
     u_net = UNet(encoder=encoder, out_channels=num_classes)
 
-    model = u_net.to(device)
-    criterion = UnetLoss
+    # model = u_net.to(device)
+    # criterion = UnetLoss
 
-    optimizer = optim.Adam(model.decoder.parameters(), lr=1e-3)
+    # optimizer = optim.Adam(model.decoder.parameters(), lr=1e-3)
+
+    model = LitModel(u_net, optim='adam', lr=1e-3)
 
     transform = transforms.Compose([ToTensor()])
 
@@ -42,42 +163,35 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     val_ds = SegmDataset(datapath, transform=transform, train=False, gts=True)
 
 
-    trn_dl = DataLoader(trn_ds, batch_size=batchsize, shuffle=True)
-    val_dl = DataLoader(val_ds, batch_size=batchsize, shuffle=True)
+    trn_dl = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
+    val_dl = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
 
-    log = Report(n_epochs)
-    for ex in range(n_epochs):
-        all_preds = None
-        all_true_labels = None
-        
-        model.decoder.train()
-        N = len(trn_dl)
-        for bx, data in enumerate(trn_dl):
-            loss, acc = train_batch(model, data, optimizer, criterion, device=device)
-            log.record(ex+(bx+1)/N, trn_loss=loss, trn_acc=acc, end='\r')
+    exp_name = 'test_30e'
+    
+    model_checkpoint = ModelCheckpoint(
+        monitor='val_WT_dice',
+        dirpath='exp/',
+        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
+        save_top_k=1,
+        mode='max',
+    )
 
-        model.decoder.eval()
-        N = len(val_dl)
-        for bx, data in enumerate(val_dl):
-            loss, acc, preds, true_labels = validate_batch(model, data, criterion, device=device)
-            log.record(ex+(bx+1)/N, val_loss=loss, val_acc=acc, end='\r')
-
-            if all_preds is None:
-                all_preds = preds.detach().cpu().numpy().flatten()
-                all_true_labels = true_labels.detach().cpu().numpy().flatten()
-            else:
-                all_preds = np.concatenate((all_preds, preds.detach().cpu().numpy().flatten()))
-                all_true_labels = np.concatenate((all_true_labels, true_labels.detach().cpu().numpy().flatten()))
-            
-        log.report_avgs(ex+1)
-
-        print("IoU of validation set", IoU(all_true_labels, all_preds, ignore_label=2))
-
-
-
+    logger = TensorBoardLogger('logs', name=exp_name)
+    trainer = pl.Trainer(
+        gpus=1,
+        #accelerator='ddp',
+        precision=16,
+        accumulate_grad_batches=1,#accum_batch_size,
+        terminate_on_nan=True,
+        max_epochs=n_epochs,
+        logger=logger,
+        callbacks=[LearningRateMonitor(logging_interval='step'), model_checkpoint],
+    )
+    # training
+    trainer.fit(model, trn_dl, val_dl)
 
 if __name__ == '__main__':
 
     run_experiment(datapath='/dados/matheus/git/u-net-with-flim2/brain3d_50',batchsize=1, archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
                     parampath='/dados/matheus/git/u-net-with-flim2/brain3d-param',
-                    n_epochs=1)
+                    n_epochs=30)
