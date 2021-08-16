@@ -40,7 +40,7 @@ class SegmDataset(Dataset):
         t1gd_path = os.path.join(self._root_dir, "t1gd", f"{self._image_names[index]}.nii.gz")
 
         if self._gts:
-            label_path = os.path.join(self._root_dir, "gts", f"{self._gt_names[index]}.nii.gz")
+            label_path = os.path.join(self._root_dir, "labelu", f"{self._gt_names[index]}.nii.gz")
         else:
             label_path = os.path.join(self._root_dir, "markers", f"{self._markers_names[index]}.txt")
     
@@ -71,7 +71,7 @@ class SegmDataset(Dataset):
             flair_path = path.join(self._root_dir, "flair")
             t1gd_path = path.join(self._root_dir, "t1gd")
             if self._gts:
-                gts_path = path.join(self._root_dir, "gts")
+                gts_path = path.join(self._root_dir, "labelu")
             else:
                 markers_path = path.join(self._root_dir, "markers")
 

@@ -23,9 +23,9 @@ from monai.visualize.img2tensorboard import add_animated_gif
 
 class LitModel(pl.LightningModule):
     colormap = th.tensor([[0, 0, 0],
-                          [255, 0, 255],
-                          [0, 255, 255],
-                          [255, 128, 0]], dtype=th.uint8)
+                          [64, 64, 64],
+                          [128, 128, 128],
+                          [255, 255, 255]], dtype=th.uint8)
 
     def __init__(self, model: th.nn.Module, optim: str, lr: float) -> None:
         super().__init__()
@@ -102,16 +102,17 @@ class LitModel(pl.LightningModule):
             prec   = multiclass_sensitivity(logits, y)
             metrics = {
                 f'{mode}_WT_dice': dice[1],
-                #f'{mode}_TC_dice': dice[2],
-                #f'{mode}_ET_dice': dice[3],
+                f'{mode}_TC_dice': dice[2],
+                f'{mode}_ET_dice': dice[3],
 
                 f'{mode}_WT_sens': prec[1],
-                #f'{mode}_TC_sens': prec[2],
-                #f'{mode}_ET_sens': prec[3],
+                f'{mode}_TC_sens': prec[2],
+                f'{mode}_ET_sens': prec[3],
             }
             self.log_dict(metrics)
             if self.global_rank == 0:
                 preds = logits.argmax(dim=1)
+                print(f'preds uniques {th.unique(preds)} shape {preds.shape}')
                 self._add_gif(xf[0, :1], f'{mode}/flair')
                 self._add_gif(xt1[0, :1], f'{mode}/t1ce')
                 self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
@@ -148,7 +149,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
 
 
-    num_classes = 2
+    num_classes = 4
     u_net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=num_classes)
 
     # model = u_net.to(device)
@@ -162,9 +163,9 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     #brain_path = 'brain3d_50'
 
-    trn_ds = SegmDataset(datapath, transform=transform, train=True, gts=True)
-    val_ds = SegmDataset(datapath, transform=transform, train=False, gts=True)
-
+    trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True)
+    val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True)
+    # test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
 
     trn_dl = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
     val_dl = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
@@ -172,13 +173,13 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp_2/',
+        dirpath='exp_3/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
         save_top_k=1,
         mode='max',
     )
 
-    logger = TensorBoardLogger('logs_2', name=exp_name)
+    logger = TensorBoardLogger('logs_3', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -192,8 +193,11 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     # training
     trainer.fit(model, trn_dl, val_dl)
 
+
+    # trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
+
 if __name__ == '__main__':
 
     run_experiment(datapath='/dados/matheus/git/u-net-with-flim2/brain3d_50_both',batchsize=1, archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
                     parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-                    n_epochs=70, exp_name='test_2encoders_70e')
+                    n_epochs=50, exp_name='test_2encoders_all')

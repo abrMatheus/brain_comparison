@@ -198,11 +198,11 @@ def IoU(gt, pred, ignore_label=-1, average='binary'):
     return iou
 
 
-# weights = [0.5, 1]
-# class_weights = torch.FloatTensor(weights).cuda()
-# ce = nn.CrossEntropyLoss(weight= class_weights, ignore_index=2).to(device)
+weights = [0.1, 1, 1, 1]
+class_weights = torch.FloatTensor(weights).cuda()
+ce = nn.CrossEntropyLoss(weight= class_weights,).to(device)
 
-ce = nn.CrossEntropyLoss(ignore_index=2).to(device)
+#ce = nn.CrossEntropyLoss(ignore_index=2).to(device)
 
 def UnetLoss(preds, targets):
     new_target = targets.clone()
