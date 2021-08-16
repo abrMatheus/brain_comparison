@@ -113,7 +113,7 @@ class LitModel(pl.LightningModule):
             self.log_dict(metrics)
             if self.global_rank == 0:
                 preds = logits.argmax(dim=1)
-                self._add_gif(x[0], f'{mode}/flair')
+                self._add_gif(x[0,:1], f'{mode}/flair')
                 #self._add_gif(x[:1, 1], f'{mode}/t1ce')
                 self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
                 self._add_gif(self._color_mask(preds[0]), f'{mode}/pred')
@@ -134,7 +134,7 @@ class LitModel(pl.LightningModule):
 
 
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
-                   parampath='brain3d-param-small', n_epochs=30):
+                   parampath='brain3d-param-small', n_epochs=30, exp_name='test'):
 
     device = get_device()
 
@@ -166,7 +166,6 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     trn_dl = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
     val_dl = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
 
-    exp_name = 'test_30e'
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
@@ -194,4 +193,4 @@ if __name__ == '__main__':
 
     run_experiment(datapath='/dados/matheus/git/u-net-with-flim2/brain3d_50',batchsize=1, archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
                     parampath='/dados/matheus/git/u-net-with-flim2/brain3d-param',
-                    n_epochs=30)
+                    n_epochs=35, exp_name='test')
