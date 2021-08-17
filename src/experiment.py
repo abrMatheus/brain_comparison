@@ -21,6 +21,8 @@ from typing import Dict, Tuple, Any, Callable
 from metrics.metrics import multiclass_dice, multiclass_sensitivity
 from monai.visualize.img2tensorboard import add_animated_gif
 
+import nibabel as nib
+
 class LitModel(pl.LightningModule):
     colormap = th.tensor([[0, 0, 0],
                           [64, 64, 64],
@@ -96,7 +98,7 @@ class LitModel(pl.LightningModule):
         self.log(f'{mode}_loss', loss, on_epoch=True, on_step=True)
         if mode == 'train':
             return loss
-        elif mode == 'val':
+        elif mode == 'val' or mode == 'test':
             logits = th.softmax(y_hat, dim=1)
             dice   = multiclass_dice(logits, y)
             prec   = multiclass_sensitivity(logits, y)
@@ -112,7 +114,6 @@ class LitModel(pl.LightningModule):
             self.log_dict(metrics)
             if self.global_rank == 0:
                 preds = logits.argmax(dim=1)
-                print(f'preds uniques {th.unique(preds)} shape {preds.shape}')
                 self._add_gif(xf[0, :1], f'{mode}/flair')
                 self._add_gif(xt1[0, :1], f'{mode}/t1ce')
                 self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
@@ -132,6 +133,20 @@ class LitModel(pl.LightningModule):
     def test_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> th.Tensor:
         return self._step(batch, mode='test')
 
+
+def save_predition(y_hat, batch, output_folder, count=0):
+    data = y_hat.detach().numpy()[0]
+    data = data.transpose(1,2,3,0).astype(np.int16)
+    #imgNib = nib.Nifti1Image(data, th.squeeze(batch[0]['affine']).detach().numpy())
+    imgNib = nib.Nifti1Image(data, affine=np.eye(4))
+
+    # name = batch[0]['path'][0].split('/')[-1]
+    # name = name.replace('_flair', '')
+    name = str(count) + '.nii.gz'
+    
+    output_path = os.path.join(output_folder , name)
+    print("saving to ", output_path)
+    nib.save(imgNib, output_path)
 
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    parampath='brain3d-param-small', n_epochs=30, exp_name='test'):
@@ -165,21 +180,21 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True)
     val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True)
-    # test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
+    test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
 
-    trn_dl = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
-    val_dl = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
-
+    trn_dl  = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
+    val_dl  = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
+    test_dl = DataLoader(test_ds, batch_size=batchsize, num_workers=8)
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp_3/',
+        dirpath='exp_4/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
         save_top_k=1,
         mode='max',
     )
 
-    logger = TensorBoardLogger('logs_3', name=exp_name)
+    logger = TensorBoardLogger('logs_4', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -193,8 +208,13 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     # training
     trainer.fit(model, trn_dl, val_dl)
 
+    trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
 
-    # trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
+    for step, batch in enumerate(test_dl):
+        xf, xt, gt = batch[0], batch[1], batch[2]
+        model.eval()
+        y_hat = model.forward(xf, xt)
+        save_predition(y_hat, batch, './out', step)
 
 if __name__ == '__main__':
 

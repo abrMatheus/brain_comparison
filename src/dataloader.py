@@ -15,12 +15,14 @@ import torchio as tio
 
 
 class SegmDataset(Dataset):
-    def __init__(self, root_dir, transform=None, train=True, gts=False):
+    def __init__(self, root_dir, transform=None, train=True, gts=False, test=False):
         assert isinstance(root_dir, str) and len(root_dir) > 0,\
             "Invalid root_dir"
 
         if train:
             self._root_dir = os.path.join(root_dir, 'train')
+        elif test:
+            self._root_dir = os.path.join(root_dir, 'test')
         else:
             self._root_dir = os.path.join(root_dir, 'val')
 
