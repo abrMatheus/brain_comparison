@@ -138,7 +138,10 @@ class LitModel(pl.LightningModule):
 def save_predition(y_hat, batch, output_folder, count=0):
     data = y_hat.detach().numpy()[0]
     data = data.transpose(1,2,3,0).astype(np.int16)
-    imgNib = nib.Nifti1Image(data, affine=np.eye(4))
+    data = data.argmax(axis=3)
+    data = data.astype(np.int16)
+    affine = np.eye(4)*np.array([-1,-1,1,1])
+    imgNib = nib.Nifti1Image(data, affine=affine)
 
     name = str(count) + '.nii.gz'
     
@@ -165,6 +168,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     transform = transforms.Compose([ToTensor()])
     test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
+    #test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True)
     test_dl = DataLoader(test_ds, batch_size=batchsize, num_workers=8)
     
     checkpoint = th.load(checkpoint_file)
@@ -190,6 +194,6 @@ if __name__ == '__main__':
     file_ckpt = sys.argv[1]
 
     run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
                    checkpoint_file=file_ckpt)

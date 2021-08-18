@@ -7,11 +7,14 @@ import torch
 from torch import optim
 
 from torchvision import transforms
+import torchio as tio
 
 from torch_snippets import *
 
 from model import UNet, UnetLoss, train_batch, validate_batch, get_device, IoU
-from dataloader import SegmDataset, ToTensor
+from data.dataloader import SegmDataset, ToTensor
+from data.bratsdataset import BratsDataset, get_train_transforms, get_test_transforms
+from torch.utils.data import random_split, DataLoader
 import torch as th
 
 
@@ -19,6 +22,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from typing import Dict, Tuple, Any, Callable
 from metrics.metrics import multiclass_dice, multiclass_sensitivity
+from models.resunet import ResUNet
 from monai.visualize.img2tensorboard import add_animated_gif
 
 import nibabel as nib
@@ -44,7 +48,7 @@ class LitModel(pl.LightningModule):
             optim = th.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
         else:
             raise NotImplementedError
-        scheduler = th.optim.lr_scheduler.MultiStepLR(optim, milestones=[35, 45], gamma=0.25)
+        scheduler = th.optim.lr_scheduler.MultiStepLR(optim, milestones=[35, 45], gamma=0.9)
         return {
             'optimizer': optim,
             'lr_scheduler': scheduler,
@@ -84,12 +88,20 @@ class LitModel(pl.LightningModule):
         )
         
     def forward(self, xf: th.Tensor, xt1: th.Tensor) -> th.Tensor:
+        #print(f"testing2 {self.model.training} {self.model.encoder1.training} {self.model.encoder2.training}")
         return self.model.forward(xf, xt1)
 
     def _step(self, batch: Tuple[th.Tensor], mode: str) -> Any:
-        y   = batch[2]
-        xt1 = batch[1]
-        xf  = batch[0]
+        #TODO: melhorar isso!!!!
+        if isinstance(batch, dict):
+            y = batch['seg'][tio.DATA].long()#.squeeze_(1).long()
+            xt1 = batch['t1ce']
+            xf = batch['flair']
+            
+        else:
+            y   = batch[2]
+            xt1 = batch[1]
+            xf  = batch[0]
 
         y_hat = self.forward(xf, xt1)
         y_hat = self._maybe_resize(y_hat, y.shape)
@@ -145,46 +157,101 @@ def save_predition(y_hat, batch, output_folder, count=0):
     print("saving to ", output_path)
     nib.save(imgNib, output_path)
 
+
+def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers=8):
+
+    if datatype == 'brats':
+        dataset = BratsDataset( datapath, mode='train', model=model)
+        chunk_len = int(len(dataset) * 0.15)
+        train_ds, val_ds, test_ds = random_split(dataset,
+                                        [len(dataset) - 2 * chunk_len, chunk_len, chunk_len],
+                                        generator=th.Generator().manual_seed(42))
+
+        train_ds.dataset.set_transform(get_train_transforms('aug'))
+        val_ds.dataset.set_transform(get_test_transforms('aug'))
+        test_ds.dataset.set_transform(get_test_transforms('aug'))
+
+        trn_dl = DataLoader(train_ds, batch_size=batch_size,
+                                shuffle=True, num_workers=num_workers,
+                                persistent_workers=True)
+
+        val_dl = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
+        test_dl = DataLoader(test_ds, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
+
+
+    elif datatype == 'ours':
+        trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True, model=model)
+        val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True, model=model)
+        test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True, model=model)
+
+        trn_dl  = DataLoader(trn_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        val_dl  = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers)
+        test_dl = DataLoader(test_ds, batch_size=batch_size, num_workers=num_workers)
+
+    else:
+        raise NotImplementedError(f'there is no {datatype}')
+
+    return trn_dl, val_dl, test_dl
+
+
+def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=None, network_depth=32):
+
+    if model == 'flimunet':
+
+        arch = utils.load_architecture(archpath)
+
+        #input_shape = [H, W, C] or [C]
+        encoder = utils.build_model(arch, input_shape=[3])
+        encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
+
+
+        encoder2 = utils.build_model(arch, input_shape=[3])
+        encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
+
+        net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=out_channels)
+
+    elif model == 'resunet':
+        net = ResUNet(num_classes=4, in_channels=2, depth=network_depth)
+    
+    elif model == 'simplenet':
+        raise NotImplementedError("no simpleunet")
+    else:
+        raise NotImplementedError(f'there is no model  {model}')
+
+    return net
+
+
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
-                   parampath='brain3d-param-small', n_epochs=30, exp_name='test'):
+                   parampath='brain3d-param-small',
+                   datatype='brats', modeltype='flimunet',
+                   n_epochs=30, exp_name='test', lr=2.5e-4):
 
     device = get_device()
 
-    arch = utils.load_architecture(archpath)
+    insidemodel = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath)
 
-    #input_shape = [H, W, C] or [C]
-    encoder = utils.build_model(arch, input_shape=[3])
-    encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
-
-
-    encoder2 = utils.build_model(arch, input_shape=[3])
-    encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
-
-
-    num_classes = 4
-    u_net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=num_classes)
-
-    model = LitModel(u_net, optim='adam', lr=1e-3)
+    model = LitModel(insidemodel, optim='adam', lr=lr)
 
     transform = transforms.Compose([ToTensor()])
-
-    trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True)
-    val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True)
-    test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
-
-    trn_dl  = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
-    val_dl  = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
-    test_dl = DataLoader(test_ds, batch_size=batchsize, num_workers=8)
+    trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8)
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp/',
-        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
+        dirpath='exp_large/',
+        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_dice',
         save_top_k=1,
         mode='max',
     )
 
-    logger = TensorBoardLogger('logs', name=exp_name)
+    model_checkpoint = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath='exp_large/',
+        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_val',
+        save_top_k=3,
+        mode='min',
+    )
+
+    logger = TensorBoardLogger('logs_large', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -198,13 +265,43 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     # training
     trainer.fit(model, trn_dl, val_dl)
 
+    trainer.save_checkpoint(f'{exp_name}_final.ckpt')
+
     trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
 
 if __name__ == '__main__':
 
-    exp_name = sys.argv[1]
+    epochs   = 1
+    run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
+                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+                   datatype='brats', modeltype='resunet',
+                   n_epochs=int(epochs), exp_name='ID1')
+
+
+    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
+                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+                   datatype='ours', modeltype='resunet',
+                   n_epochs=int(epochs), exp_name='ID2')
+
+    run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
+                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
+                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+                   datatype='brats', modeltype='flimunet',
+                   n_epochs=int(epochs), exp_name='ID3')
+
 
     run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
                    archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
                    parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-                   n_epochs=10, exp_name=exp_name)
+                   datatype='ours', modeltype='flimunet',
+                   n_epochs=int(epochs), exp_name='ID4')
+
+
+
+    # run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
+    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+    #                datatype='brats', modeltype='simpleunet',
+    #                n_epochs=int(epochs), exp_name=exp_name)
