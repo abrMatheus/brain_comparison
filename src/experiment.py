@@ -203,8 +203,9 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 if __name__ == '__main__':
 
     exp_name = sys.argv[1]
+    epochs   = sys.argv[2]
 
     run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
                    archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
                    parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-                   n_epochs=10, exp_name=exp_name)
+                   n_epochs=int(epochs), exp_name=exp_name)
