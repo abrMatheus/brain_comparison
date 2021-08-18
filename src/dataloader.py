@@ -78,14 +78,14 @@ class SegmDataset(Dataset):
                 markers_path = path.join(self._root_dir, "markers")
 
             if path.exists(flair_path) and path.exists(t1gd_path):
-                self._image_names = [int(name.split('.')[0]) for name in os.listdir(flair_path)]
+                self._image_names = [name.split('.')[0] for name in os.listdir(flair_path)]
                 self._image_names.sort()
 
                 if self._gts:
-                    self._gt_names = [int(name.split('.')[0]) for name in os.listdir(gts_path)]
+                    self._gt_names = [name.split('.')[0] for name in os.listdir(gts_path)]
                     self._gt_names.sort()
                 else:
-                    self._markers_names = [int(name.split('.')[0]) for name in os.listdir(markers_path)]
+                    self._markers_names = [name.split('.')[0] for name in os.listdir(markers_path)]
                     self._markers_names.sort()
 
             elif not path.exists(flair_path):

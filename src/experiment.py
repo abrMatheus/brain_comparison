@@ -137,11 +137,8 @@ class LitModel(pl.LightningModule):
 def save_predition(y_hat, batch, output_folder, count=0):
     data = y_hat.detach().numpy()[0]
     data = data.transpose(1,2,3,0).astype(np.int16)
-    #imgNib = nib.Nifti1Image(data, th.squeeze(batch[0]['affine']).detach().numpy())
     imgNib = nib.Nifti1Image(data, affine=np.eye(4))
 
-    # name = batch[0]['path'][0].split('/')[-1]
-    # name = name.replace('_flair', '')
     name = str(count) + '.nii.gz'
     
     output_path = os.path.join(output_folder , name)
@@ -167,16 +164,9 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     num_classes = 4
     u_net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=num_classes)
 
-    # model = u_net.to(device)
-    # criterion = UnetLoss
-
-    # optimizer = optim.Adam(model.decoder.parameters(), lr=1e-3)
-
     model = LitModel(u_net, optim='adam', lr=1e-3)
 
     transform = transforms.Compose([ToTensor()])
-
-    #brain_path = 'brain3d_50'
 
     trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True)
     val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True)
@@ -188,13 +178,13 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp_4/',
+        dirpath='exp/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
         save_top_k=1,
         mode='max',
     )
 
-    logger = TensorBoardLogger('logs_4', name=exp_name)
+    logger = TensorBoardLogger('logs', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -210,14 +200,11 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
 
-    for step, batch in enumerate(test_dl):
-        xf, xt, gt = batch[0], batch[1], batch[2]
-        model.eval()
-        y_hat = model.forward(xf, xt)
-        save_predition(y_hat, batch, './out', step)
-
 if __name__ == '__main__':
 
-    run_experiment(datapath='/dados/matheus/git/u-net-with-flim2/brain3d_50_both',batchsize=1, archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-                    parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-                    n_epochs=50, exp_name='test_2encoders_all')
+    exp_name = sys.argv[1]
+
+    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
+                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
+                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+                   n_epochs=10, exp_name=exp_name)
