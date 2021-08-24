@@ -178,13 +178,21 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp/',
-        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}',
+        dirpath='exp_large/',
+        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_dice',
         save_top_k=1,
         mode='max',
     )
 
-    logger = TensorBoardLogger('logs', name=exp_name)
+    model_checkpoint = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath='exp_large/',
+        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_val',
+        save_top_k=3,
+        mode='min',
+    )
+
+    logger = TensorBoardLogger('logs_large', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -198,6 +206,8 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     # training
     trainer.fit(model, trn_dl, val_dl)
 
+    trainer.save_checkpoint(f'{exp_name}_final.ckpt')
+
     trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
 
 if __name__ == '__main__':
@@ -206,6 +216,6 @@ if __name__ == '__main__':
     epochs   = sys.argv[2]
 
     run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
                    n_epochs=int(epochs), exp_name=exp_name)
