@@ -145,36 +145,66 @@ def save_predition(y_hat, batch, output_folder, count=0):
     print("saving to ", output_path)
     nib.save(imgNib, output_path)
 
+
+def getDataloaders(datatype, datapath, transform, batchsize, num_workers=8):
+
+    if datatype == 'brats':
+        raise NotImplementedError("brats dataset not implemented yet")
+    elif datatype == 'ours':
+        trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True)
+        val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True)
+        test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
+
+        trn_dl  = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
+        val_dl  = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
+        test_dl = DataLoader(test_ds, batch_size=batchsize, num_workers=8)
+
+    else:
+        raise NotImplementedError(f'there is no {datatype}')
+
+    return trn_dl, val_dl, test_dl
+
+
+def getInsideModel(model, out_channels=4, archpath, parampath):
+
+    if model == 'flimunet':
+
+        arch = utils.load_architecture(archpath)
+
+        #input_shape = [H, W, C] or [C]
+        encoder = utils.build_model(arch, input_shape=[3])
+        encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
+
+
+        encoder2 = utils.build_model(arch, input_shape=[3])
+        encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
+
+        model = UNet(encoder1=encoder, encoder2=encoder2, out_channels=out_channels)
+
+    elif model == 'resunet':
+        raise NotImplementedError("no resunet!!")
+    
+    elif model == 'simplenet':
+        raise NotImplementedError("no simpleunet")
+    else:
+        raise NotImplementedError(f'there is no model  {model}')
+
+    return model
+
+
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
-                   parampath='brain3d-param-small', n_epochs=30, exp_name='test'):
+                   parampath='brain3d-param-small',
+                   datatype='brats', model='flimunet',
+                   n_epochs=30, exp_name='test'):
 
     device = get_device()
 
-    arch = utils.load_architecture(archpath)
+    insidemodel = getInsideModel(model, out_channels=4, archpath, parampath)
 
-    #input_shape = [H, W, C] or [C]
-    encoder = utils.build_model(arch, input_shape=[3])
-    encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
-
-
-    encoder2 = utils.build_model(arch, input_shape=[3])
-    encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
-
-
-    num_classes = 4
-    u_net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=num_classes)
-
-    model = LitModel(u_net, optim='adam', lr=1e-3)
+    model = LitModel(insidemodel, optim='adam', lr=1e-3)
 
     transform = transforms.Compose([ToTensor()])
-
-    trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True)
-    val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True)
-    test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
-
-    trn_dl  = DataLoader(trn_ds, batch_size=batchsize, num_workers=8)
-    val_dl  = DataLoader(val_ds, batch_size=batchsize, num_workers=8)
-    test_dl = DataLoader(test_ds, batch_size=batchsize, num_workers=8)
+    trn_dl, val_dl, test_dl = getDataloaders(datapath, transform, batchsize, num_workers=8)
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
@@ -212,10 +242,26 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 if __name__ == '__main__':
 
-    exp_name = sys.argv[1]
-    epochs   = sys.argv[2]
+    #exp_name = sys.argv[1]
+    #epochs   = sys.argv[2]
+
+    exp_name = 'resunet'
+    epochs   = 1
+
+    # run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
+    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+    #                datatype='brats', model='resunet',
+    #                n_epochs=int(epochs), exp_name=exp_name)
+
+    # run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
+    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
+    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+    #                datatype='brats', model='simpleunet',
+    #                n_epochs=int(epochs), exp_name=exp_name)
 
     run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
                    archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
                    parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+                   datatype='brats', model='flimunet',
                    n_epochs=int(epochs), exp_name=exp_name)
