@@ -222,7 +222,7 @@ def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=Non
 
 
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
-                   parampath='brain3d-param-small',
+                   parampath='/app/param',
                    datatype='brats', modeltype='flimunet',
                    n_epochs=30, exp_name='test', lr=2.5e-4):
 
@@ -237,7 +237,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='exp_large/',
+        dirpath='/app/exp/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_dice',
         save_top_k=1,
         mode='max',
@@ -245,13 +245,13 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     model_checkpoint = ModelCheckpoint(
         monitor='val_loss',
-        dirpath='exp_large/',
+        dirpath='/app/exp/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_val',
         save_top_k=3,
         mode='min',
     )
 
-    logger = TensorBoardLogger('logs_large', name=exp_name)
+    logger = TensorBoardLogger('/app/exp/logs', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -272,16 +272,12 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 if __name__ == '__main__':
 
     epochs   = 1
-    run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+    run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1,
                    datatype='brats', modeltype='resunet',
                    n_epochs=int(epochs), exp_name='ID1')
 
 
-    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1,
                    datatype='ours', modeltype='resunet',
                    n_epochs=int(epochs), exp_name='ID2')
 
