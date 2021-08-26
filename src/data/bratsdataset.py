@@ -6,6 +6,7 @@ import torchio as tio
 from torchio.data import SubjectsDataset, Subject
 import torchio.transforms as tr
 
+from .dataloader import load_image, load_label_image
 
 def get_test_transforms(mode: str) -> Callable:
     assert mode in ('basic', 'quantnorm', 'aug')
@@ -14,7 +15,6 @@ def get_test_transforms(mode: str) -> Callable:
     return tr.Compose([
         tr.RescaleIntensity(percentiles=percentiles, exclude='seg'),
         tr.RemapLabels({0:0, 1:1, 2:2, 4:3}, include='seg'),
-        tr.Resample([2,2,2])
     ])
 
 
@@ -46,7 +46,9 @@ class BratsDataset(SubjectsDataset):
                  directory: Union[str, Path],
                  mode: str,
                  transform: Optional[Callable] = None,
-                 load_getitem: bool = True):
+                 load_getitem: bool = True, model='brats'):
+
+        self.model=model
 
         if isinstance(directory, str):
             directory = Path(directory)
@@ -65,9 +67,9 @@ class BratsDataset(SubjectsDataset):
             key = re.findall(r'[a-z1-9]+(?=\.nii\.gz)', im_path.name)[0]
 
             if key == self.label_key:
-                images[key] = tio.LabelMap(im_path)
+                images[key] = load_label_image(im_path, self.model)
             else:
-                images[key] = tio.ScalarImage(im_path)
+                images[key] = load_image(im_path, self.model)
 
         return Subject(**images)
 

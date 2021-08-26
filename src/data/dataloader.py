@@ -14,8 +14,32 @@ import numpy as np
 import torchio as tio
 
 
+def load_label_image(label_path, model):
+    
+    if model == 'flimunet' or model == 'normal' or model == 'resunet':
+        label_image = tio.LabelMap(label_path)
+    else :
+        raise NotImplementedError(f'model {model} not implemented')
+        
+    return label_image
+
+def load_image(image_path, model):
+
+    if model == 'flimunet':
+        image = utils.load_image(str(image_path))
+        image = image.transpose((3, 0, 1, 2))
+        image = torch.from_numpy(image)
+    elif model == 'normal' or model == 'resunet':
+        image = tio.ScalarImage(image_path)[tio.DATA]
+    else:
+        raise NotImplementedError(f'model {model} not implemented')
+
+    return image.float()
+
+
+
 class SegmDataset(Dataset):
-    def __init__(self, root_dir, transform=None, train=True, gts=False, test=False):
+    def __init__(self, root_dir, transform=None, train=True, gts=False, test=False, model='ours'):
         assert isinstance(root_dir, str) and len(root_dir) > 0,\
             "Invalid root_dir"
 
@@ -36,6 +60,7 @@ class SegmDataset(Dataset):
         self._gt_names = None
 
         self._load_dataset_info()
+        self.model=model
 
     def __getitem__(self, index):
         flair_path = os.path.join(self._root_dir, "flair", f"{self._image_names[index]}.nii.gz")
@@ -46,19 +71,11 @@ class SegmDataset(Dataset):
         else:
             label_path = os.path.join(self._root_dir, "markers", f"{self._markers_names[index]}.txt")
     
-        flair_img = utils.load_image(flair_path)
-        flair_img = flair_img.transpose((3, 0, 1, 2))
-        t1gd_img = utils.load_image(t1gd_path)
-        t1gd_img = t1gd_img.transpose((3, 0, 1, 2))
+        flair_img = load_image(flair_path, self.model)
+        t1gd_img = load_image(t1gd_path, self.model)
+
         
-        label_image = self._load_label_image(label_path)
-
-        if self._gts:
-            label_image[label_image == 255] = 1
-
-        if not self._gts:
-            label_image[label_image == 0] = 3
-            label_image = label_image - 1
+        label_image = np.array(load_label_image(label_path, self.model))
 
         if(self._transform):
             flair_img = self._transform(flair_img)
@@ -98,27 +115,6 @@ class SegmDataset(Dataset):
     def __len__(self):
         return len(self._image_names)
 
-    def _load_label_image(self, label_path):
-        if label_path.endswith('.txt'):
-            with open(label_path, 'r') as f:
-                lines = f.readlines()
-            label_infos = [int(info) for info in lines[0].split(" ")]
-
-            #images dimensions are flipped
-            image_shape = (label_infos[2], label_infos[1])
-            label_image = np.zeros(image_shape, dtype=np.int)
-
-            for line in lines[1:]:
-                split_line = line.split(" ")
-                y, x, label = int(split_line[0]), int(split_line[1]), int(split_line[3])
-                label_image[x][y] = label
-            
-            assert (label_image != 0).sum() == label_infos[0], "There are zero markers. Be careful!!"
-        else:
-            
-            label_image = np.array(tio.LabelMap(label_path))
-            
-        return label_image
         
 class ToTensor(object):
     def __call__(self, sample):
