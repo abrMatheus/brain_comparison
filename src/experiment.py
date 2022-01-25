@@ -237,7 +237,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_WT_dice',
-        dirpath='/app/exp/',
+        dirpath='exp/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_dice',
         save_top_k=1,
         mode='max',
@@ -245,13 +245,13 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     model_checkpoint = ModelCheckpoint(
         monitor='val_loss',
-        dirpath='/app/exp/',
+        dirpath='exp/',
         filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_val',
         save_top_k=3,
         mode='min',
     )
 
-    logger = TensorBoardLogger('/app/exp/logs', name=exp_name)
+    logger = TensorBoardLogger('exp/logs', name=exp_name)
     trainer = pl.Trainer(
         gpus=1,
         #accelerator='ddp',
@@ -272,25 +272,32 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 if __name__ == '__main__':
 
     epochs   = 1
-    run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1,
-                   datatype='brats', modeltype='resunet',
-                   n_epochs=int(epochs), exp_name='ID1')
+    # run_experiment(datapath='/dados/data_lids/simple_brats',batchsize=1,
+    #                datatype='brats', modeltype='resunet',
+    #                n_epochs=int(epochs), exp_name='ID1')
 
 
-    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1,
-                   datatype='ours', modeltype='resunet',
-                   n_epochs=int(epochs), exp_name='ID2')
+    # run_experiment(datapath='/dados/data_lids/glioblastoma/perc/50',batchsize=1,
+    #                datatype='ours', modeltype='resunet',
+    #                n_epochs=int(epochs), exp_name='ID2')
 
-    run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-                   datatype='brats', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='ID3')
+    # run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
+    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
+    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+    #                datatype='brats', modeltype='flimunet',
+    #                n_epochs=int(epochs), exp_name='ID3')
 
 
-    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+    # run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
+    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
+    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
+    #                datatype='ours', modeltype='flimunet',
+    #                n_epochs=int(epochs), exp_name='ID4')
+
+
+    run_experiment(datapath='/dados/data_lids/glioblastoma/iqr/roi',batchsize=1, 
+                   archpath='/dados/data_lids/archs/small/arch.json',
+                   parampath='/dados/data_lids/params/roi-iqr-small',
                    datatype='ours', modeltype='flimunet',
                    n_epochs=int(epochs), exp_name='ID4')
 
