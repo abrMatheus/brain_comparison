@@ -155,9 +155,11 @@ class UNet(nn.Module):
         self.decoder.add_module("output_layer", nn.Conv3d(last_conv_out_channels, out_channels, kernel_size=1))
 
     def forward(self, x1, x2):
-        self.encoder1.eval()
-        self.encoder2.eval()
+        #self.encoder1.eval()
+        #self.encoder2.eval()
         #print(f"testing {self.training} {self.encoder1.training} {self.encoder2.training}")
+        
+        #with torch.no_grad():
         encoder_outputs1 = self._encoder_blocks1(x1)
         encoder_outputs2 = self._encoder_blocks2(x2)
 
@@ -202,20 +204,20 @@ def IoU(gt, pred, ignore_label=-1, average='binary'):
 
 
 weights = [0.1, 1, 1, 1]
-class_weights = torch.FloatTensor(weights).cuda()
-ce = nn.CrossEntropyLoss(weight= class_weights,).to(device)
+class_weights = torch.FloatTensor(weights).cuda(2)
+ce = nn.CrossEntropyLoss(weight= class_weights).cuda(2)
 
 #ce = nn.CrossEntropyLoss(ignore_index=2).to(device)
 
 def UnetLoss(preds, targets):
     new_target = targets.clone()
     
-    if(not new_target.shape == preds.shape):
-        diff=np.array(preds.shape) - np.array(new_target.shape)
-        p1d = (0, diff[4], 0, diff[3], 0, diff[2], 0, 0, 0, 0)
-        new_target = nn.functional.pad(new_target, p1d, "constant", 0)
+    #if(not new_target.shape == preds.shape):
+    #    diff=np.array(preds.shape) - np.array(new_target.shape)
+    #    p1d = (0, diff[4], 0, diff[3], 0, diff[2], 0, 0, 0, 0)
+    #    new_target = nn.functional.pad(new_target, p1d, "constant", 0)
     
-    new_target = new_target.squeeze(0)
+    new_target = new_target
     ce_loss = ce(preds, new_target)
     pred_labels = torch.max(preds, 1)[1]
     mask = new_target != 2

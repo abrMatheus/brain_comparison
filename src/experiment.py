@@ -11,7 +11,7 @@ import torchio as tio
 
 from torch_snippets import *
 
-from model import UNet, UnetLoss, train_batch, validate_batch, get_device, IoU
+from model import UNet, UnetLoss, train_batch, validate_batch, IoU
 from data.dataloader import SegmDataset, ToTensor
 from data.bratsdataset import BratsDataset, get_train_transforms, get_test_transforms
 from torch.utils.data import random_split, DataLoader
@@ -39,7 +39,7 @@ class LitModel(pl.LightningModule):
         self.optim = optim
         self.lr = lr
 
-        self.class_weights = th.tensor([0.1, 1, 1, 1])
+        self.class_weights = th.tensor([1, 1, 1, 1])
     
     def configure_optimizers(self):#necessario????
         if self.optim.lower() == 'adam':
@@ -103,8 +103,11 @@ class LitModel(pl.LightningModule):
             xt1 = batch[1]
             xf  = batch[0]
 
+            #print("sizes", xf.shape, xt1.shape, y.shape)
+
         y_hat = self.forward(xf, xt1)
         y_hat = self._maybe_resize(y_hat, y.shape)
+        #print("shapes", y_hat.shape, y.shape)
         loss, acc = UnetLoss(y_hat, y)
         
         self.log(f'{mode}_loss', loss, on_epoch=True, on_step=True)
@@ -128,7 +131,7 @@ class LitModel(pl.LightningModule):
                 preds = logits.argmax(dim=1)
                 self._add_gif(xf[0, :1], f'{mode}/flair')
                 self._add_gif(xt1[0, :1], f'{mode}/t1ce')
-                self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
+                self._add_gif(self._color_mask(y[0]), f'{mode}/gt')
                 self._add_gif(self._color_mask(preds[0]), f'{mode}/pred')
             
             return metrics
@@ -202,11 +205,11 @@ def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=Non
 
         #input_shape = [H, W, C] or [C]
         encoder = utils.build_model(arch, input_shape=[3])
-        encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
+        #encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
 
 
         encoder2 = utils.build_model(arch, input_shape=[3])
-        encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
+        #encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
 
         net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=out_channels)
 
@@ -226,7 +229,6 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    datatype='brats', modeltype='flimunet',
                    n_epochs=30, exp_name='test', lr=2.5e-4):
 
-    device = get_device()
 
     insidemodel = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath)
 
@@ -253,7 +255,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     logger = TensorBoardLogger('exp/logs', name=exp_name)
     trainer = pl.Trainer(
-        gpus=1,
+        gpus=[2],
         #accelerator='ddp',
         precision=16,
         accumulate_grad_batches=1,#accum_batch_size,
@@ -268,43 +270,21 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     trainer.save_checkpoint(f'{exp_name}_final.ckpt')
 
     trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
+    trainer.test(model, val_dl, ckpt_path=model_checkpoint.best_model_path)
+    trainer.test(model, trn_dl, ckpt_path=model_checkpoint.best_model_path)
 
 if __name__ == '__main__':
 
-    epochs   = 1
-    # run_experiment(datapath='/dados/data_lids/simple_brats',batchsize=1,
-    #                datatype='brats', modeltype='resunet',
-    #                n_epochs=int(epochs), exp_name='ID1')
+    epochs   = 200 
 
-
-    # run_experiment(datapath='/dados/data_lids/glioblastoma/perc/50',batchsize=1,
-    #                datatype='ours', modeltype='resunet',
-    #                n_epochs=int(epochs), exp_name='ID2')
-
-    # run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
-    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-    #                datatype='brats', modeltype='flimunet',
-    #                n_epochs=int(epochs), exp_name='ID3')
-
-
-    # run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
-    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d-small.json',
-    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-small-param',
-    #                datatype='ours', modeltype='flimunet',
-    #                n_epochs=int(epochs), exp_name='ID4')
-
-
-    run_experiment(datapath='/dados/data_lids/glioblastoma/iqr/roi',batchsize=1, 
-                   archpath='/dados/data_lids/archs/small/arch.json',
-                   parampath='/dados/data_lids/params/roi-iqr-small',
+    run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1, 
+                   archpath='/app/archs/small/arch.json',
+                   parampath='/app/params/roi-iqr-small',
                    datatype='ours', modeltype='flimunet',
                    n_epochs=int(epochs), exp_name='ID4')
 
-
-
-    # run_experiment(datapath='/dados/matheus/dados/simple_brats',batchsize=1, 
-    #                archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
-    #                parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
-    #                datatype='brats', modeltype='simpleunet',
-    #                n_epochs=int(epochs), exp_name=exp_name)
+    #run_experiment(datapath='/app/glioblastoma/won4/100',batchsize=1,
+    #               archpath='/app/archs/small/arch.json',
+    #               parampath='/app/params/roi-won4-small-std',
+    #               datatype='ours', modeltype='flimunet',
+    #               n_epochs=int(epochs), exp_name='won4_roi_stdp')

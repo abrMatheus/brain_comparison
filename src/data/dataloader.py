@@ -19,7 +19,7 @@ def load_label_image(label_path, model):
     if model == 'flimunet' or model == 'normal' or model == 'resunet':
         #label_image = tio.LabelMap(label_path)
         label_image = utils.load_image(str(label_path),lab=False)
-        label_image = np.expand_dims(label_image,axis=0)
+        #label_image = np.expand_dims(label_image,axis=0)
     else :
         raise NotImplementedError(f'model {model} not implemented')
         
