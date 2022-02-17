@@ -1,10 +1,11 @@
 #git+git://github.com/LIDS-UNICAMP/FLIM@dev #FLIM
-#torch
-#torchvision
+torch
+torchvision
 torchio
-medpy
 flashtorch
 torch-snippets
 scikit-lego
 torchsummary
 pytorch-lightning
+medpy
+monai
