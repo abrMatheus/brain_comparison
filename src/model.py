@@ -155,13 +155,13 @@ class UNet(nn.Module):
         self.decoder.add_module("output_layer", nn.Conv3d(last_conv_out_channels, out_channels, kernel_size=1))
 
     def forward(self, x1, x2):
-        #self.encoder1.eval()
-        #self.encoder2.eval()
+        self.encoder1.eval()
+        self.encoder2.eval()
         #print(f"testing {self.training} {self.encoder1.training} {self.encoder2.training}")
         
-        #with torch.no_grad():
-        encoder_outputs1 = self._encoder_blocks1(x1)
-        encoder_outputs2 = self._encoder_blocks2(x2)
+        with torch.no_grad():
+            encoder_outputs1 = self._encoder_blocks1(x1)
+            encoder_outputs2 = self._encoder_blocks2(x2)
 
         block_names = reversed(encoder_outputs1.keys())
 

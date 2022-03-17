@@ -295,39 +295,42 @@ if __name__ == '__main__':
 
     epochs   = 100
 
-    run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
-                   archpath='/app/archs/small/arch.json',
-                   parampath='/app/params/iqr',
-                   datatype='ours', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='new_iqr')
 
-    run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
-                   archpath='/app/archs/small/arch.json',
-                   parampath='/app/params/roi-iqr-small',
-                   datatype='ours', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='old_iqr')
+    for i in range(3):
+
+        run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
+                       archpath='/app/archs/small/arch.json',
+                       parampath='/app/roi_params/old_iqr',
+                       datatype='ours', modeltype='flimunet',
+                       n_epochs=int(epochs), exp_name='new_iqr')
+
+        run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
+                       archpath='/app/archs/small/arch.json',
+                       parampath='/app/params/roi-iqr-small',
+                       datatype='ours', modeltype='flimunet',
+                       n_epochs=int(epochs), exp_name='old_iqr')
 
 
-    run_experiment(datapath='/app/glioblastoma/won4_std/100',batchsize=1,
-                   archpath='/app/archs/small/arch.json',
-                   parampath='/app/params/won4_std',
-                   datatype='ours', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='won4_std_3d')
+        run_experiment(datapath='/app/glioblastoma/won4_std/100',batchsize=1,
+                       archpath='/app/archs/small/arch.json',
+                       parampath='/app/roi_params/won4_std',
+                       datatype='ours', modeltype='flimunet',
+                       n_epochs=int(epochs), exp_name='won4_std_3d')
 
-    run_experiment(datapath='/app/glioblastoma/won4_std_iqr/100',batchsize=1,
-                   archpath='/app/archs/small/arch.json',
-                   parampath='/app/params/won4_std_iqr',
-                   datatype='ours', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='won4_std_iqr_3d')
+        run_experiment(datapath='/app/glioblastoma/won4_std_iqr/100',batchsize=1,
+                       archpath='/app/archs/small/arch.json',
+                       parampath='/app/roi_params/won4_std_iqr',
+                       datatype='ours', modeltype='flimunet',
+                       n_epochs=int(epochs), exp_name='won4_std_iqr_3d')
 
-    run_experiment(datapath='/app/glioblastoma/orig_std_iqr/100',batchsize=1,
-                   archpath='/app/archs/small/arch.json',
-                   parampath='/app/params/orig_std_iqr',
-                   datatype='ours', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='orig_std_3d')
+        run_experiment(datapath='/app/glioblastoma/orig_std/100',batchsize=1,
+                       archpath='/app/archs/small/arch.json',
+                       parampath='/app/roi_params/orig_std',
+                       datatype='ours', modeltype='flimunet',
+                       n_epochs=int(epochs), exp_name='orig_std_3d')
 
-    run_experiment(datapath='/app/glioblastoma/orig_std_iqr/100',batchsize=1,
-                   archpath='/app/archs/small/arch.json',
-                   parampath='/app/params/orig_std_iqr',
-                   datatype='ours', modeltype='flimunet',
-                   n_epochs=int(epochs), exp_name='orig_std_iqr_3d')
+        run_experiment(datapath='/app/glioblastoma/orig_std_iqr/100',batchsize=1,
+                      archpath='/app/archs/small/arch.json',
+                       parampath='/app/roi_params/orig_std_iqr',
+                       datatype='ours', modeltype='flimunet',
+                       n_epochs=int(epochs), exp_name='orig_std_iqr_3d')
