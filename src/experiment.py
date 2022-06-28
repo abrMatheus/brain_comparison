@@ -23,6 +23,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from typing import Dict, Tuple, Any, Callable
 from metrics.metrics import multiclass_dice, multiclass_sensitivity
 from models.resunet import ResUNet
+from models.unet import StandUNet
 from monai.visualize.img2tensorboard import add_animated_gif
 
 import nibabel as nib
@@ -94,9 +95,11 @@ class LitModel(pl.LightningModule):
     def _step(self, batch: Tuple[th.Tensor], mode: str) -> Any:
         #TODO: melhorar isso!!!!
         if isinstance(batch, dict):
-            y = batch['seg'][tio.DATA].long()#.squeeze_(1).long()
+            y = batch['seg']#[tio.DATA].long()#.squeeze_(1).long()
             xt1 = batch['t1ce']
             xf = batch['flair']
+
+
             
         else:
             y   = batch[2]
@@ -201,40 +204,46 @@ def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers
     return trn_dl, val_dl, test_dl
 
 
-def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=None, network_depth=32):
+def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=None, network_depth=64,
+                   train_encoder=False):
 
+    
+    arch = None
     if model == 'flimunet':
 
         arch = utils.load_architecture(archpath)
 
         #input_shape = [H, W, C] or [C]
         encoder = utils.build_model(arch, input_shape=[3])
-        encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
 
 
         encoder2 = utils.build_model(arch, input_shape=[3])
-        encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
 
-        net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=out_channels)
+        if parampath is not None:
+            encoder = utils.load_weights_from_lids_model(encoder, parampath+ "/flair")
+            encoder2 = utils.load_weights_from_lids_model(encoder2,parampath+ "/t1gd")
+
+        net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=out_channels, train_encoder=train_encoder)
 
     elif model == 'resunet':
         net = ResUNet(num_classes=4, in_channels=2, depth=network_depth)
     
-    elif model == 'simplenet':
-        raise NotImplementedError("no simpleunet")
+    elif model == 'standard_unet':
+        net  = StandUNet(num_classes=4, in_channels=2, depth=network_depth) 
     else:
         raise NotImplementedError(f'there is no model  {model}')
 
-    return net
+    return net, arch
 
 
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    parampath='/app/param',
                    datatype='brats', modeltype='flimunet',
-                   n_epochs=30, exp_name='test', lr=2.5e-4):
+                   n_epochs=30, exp_name='test', lr=2.5e-4,train_encoder=False):
 
 
-    insidemodel = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath)
+    insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath,
+                                 train_encoder=train_encoder)
 
     model = LitModel(insidemodel, optim='adam', lr=lr)
 
@@ -248,14 +257,6 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
         save_top_k=2,
         mode='max',
     )
-
-    #model_checkpoint = ModelCheckpoint(
-    #    monitor='val_loss',
-    #    dirpath='exp/',
-    #    filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_val',
-    #    save_top_k=3,
-    #    mode='min',
-    #)
 
     logger = TensorBoardLogger('exp/logs', name=exp_name)
     trainer = pl.Trainer(
@@ -271,12 +272,24 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     # training
     trainer.fit(model, trn_dl, val_dl)
 
-    trainer.save_checkpoint(f'{exp_name}_final.ckpt')
-
+    #trainer.save_checkpoint(f'{exp_name}_final.ckpt') 
+    
+    print(f"best model {model_checkpoint.best_model_path}")
 
     trainer.test(model, test_dl, ckpt_path=model_checkpoint.best_model_path)
     trainer.test(model, val_dl, ckpt_path=model_checkpoint.best_model_path)
     trainer.test(model, trn_dl, ckpt_path=model_checkpoint.best_model_path)
+
+    #model = LitModel.load_from_checkpoint(model_checkpoint.best_model_path)
+
+    checkpoint = th.load(model_checkpoint.best_model_path)
+    model.load_state_dict(checkpoint['state_dict'])
+
+
+    if arch is not None:
+        utils.save_lids_model(insidemodel.encoder1, arch, 'output_dir', exp_name + "/flair")
+        utils.save_lids_model(insidemodel.encoder2, arch, 'output_dir', exp_name + "/t1gd")
+
 
     '''
     count=0
@@ -295,42 +308,12 @@ if __name__ == '__main__':
 
     epochs   = 100
 
+    for i in range(1):
 
-    for i in range(3):
+	run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath='/app/data/new_model/',
+                    datatype='ours', modeltype='flimunet',
+                    n_epochs=int(epochs), exp_name='rigid_flim',
+                    train_encoder=False)
 
-        run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
-                       archpath='/app/archs/small/arch.json',
-                       parampath='/app/roi_params/old_iqr',
-                       datatype='ours', modeltype='flimunet',
-                       n_epochs=int(epochs), exp_name='new_iqr')
-
-        run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
-                       archpath='/app/archs/small/arch.json',
-                       parampath='/app/params/roi-iqr-small',
-                       datatype='ours', modeltype='flimunet',
-                       n_epochs=int(epochs), exp_name='old_iqr')
-
-
-        run_experiment(datapath='/app/glioblastoma/won4_std/100',batchsize=1,
-                       archpath='/app/archs/small/arch.json',
-                       parampath='/app/roi_params/won4_std',
-                       datatype='ours', modeltype='flimunet',
-                       n_epochs=int(epochs), exp_name='won4_std_3d')
-
-        run_experiment(datapath='/app/glioblastoma/won4_std_iqr/100',batchsize=1,
-                       archpath='/app/archs/small/arch.json',
-                       parampath='/app/roi_params/won4_std_iqr',
-                       datatype='ours', modeltype='flimunet',
-                       n_epochs=int(epochs), exp_name='won4_std_iqr_3d')
-
-        run_experiment(datapath='/app/glioblastoma/orig_std/100',batchsize=1,
-                       archpath='/app/archs/small/arch.json',
-                       parampath='/app/roi_params/orig_std',
-                       datatype='ours', modeltype='flimunet',
-                       n_epochs=int(epochs), exp_name='orig_std_3d')
-
-        run_experiment(datapath='/app/glioblastoma/orig_std_iqr/100',batchsize=1,
-                      archpath='/app/archs/small/arch.json',
-                       parampath='/app/roi_params/orig_std_iqr',
-                       datatype='ours', modeltype='flimunet',
-                       n_epochs=int(epochs), exp_name='orig_std_iqr_3d')

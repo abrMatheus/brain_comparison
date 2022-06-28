@@ -22,6 +22,8 @@ from collections import OrderedDict
 
 from flashtorch.activmax import GradientAscent
 
+from dice_loss import SoftDiceLoss, SoftDiceLossSquared
+
 def get_device():
     gpu = torch.cuda.is_available()
 
@@ -103,8 +105,11 @@ def _layers_before_downscale(model):
     return layer_names, last_out_channels
 
 class UNet(nn.Module):
-    def __init__(self, encoder1, encoder2, out_channels=2):
+    def __init__(self, encoder1, encoder2, out_channels=2,
+                 train_encoder=False):
         super().__init__()
+
+        self.train_encoder=train_encoder
 
         
         #111111
@@ -130,7 +135,10 @@ class UNet(nn.Module):
         self._encoder_blocks2 = IntermediateLayerGetter(self.encoder2, layer_names)
         
         
-        
+        if self.train_encoder == False:
+            self.encoder_eval()
+        else:
+            self.freeze_mnorm()
         
         
         self.decoder = nn.Module()
@@ -154,12 +162,31 @@ class UNet(nn.Module):
         
         self.decoder.add_module("output_layer", nn.Conv3d(last_conv_out_channels, out_channels, kernel_size=1))
 
+    def freeze_mnorm(self):
+        for param in self.encoder1.named_parameters():
+            if 'm-norm' in param[0]:
+                param[1].requires_grad = False
+        for param in self.encoder2.named_parameters():
+            if 'm-norm' in param[0]:
+                param[1].requires_grad = False
+
+    def encoder_eval(self):
+        for param in self.encoder1.parameters():
+            param.requires_grad = False
+        for param in self.encoder2.parameters():
+            param.requires_grad = False
+
     def forward(self, x1, x2):
-        self.encoder1.eval()
-        self.encoder2.eval()
-        #print(f"testing {self.training} {self.encoder1.training} {self.encoder2.training}")
+
+        if self.train_encoder==False:
+            self.encoder1.eval()
+            self.encoder2.eval()
         
-        with torch.no_grad():
+            with torch.no_grad():
+                encoder_outputs1 = self._encoder_blocks1(x1)
+                encoder_outputs2 = self._encoder_blocks2(x2)
+
+        else:
             encoder_outputs1 = self._encoder_blocks1(x1)
             encoder_outputs2 = self._encoder_blocks2(x2)
 
@@ -203,24 +230,23 @@ def IoU(gt, pred, ignore_label=-1, average='binary'):
     return iou
 
 
-weights = [0.1, 1, 1, 1]
+weights = [0.1, 1., 1., 1.]
 class_weights = torch.FloatTensor(weights).cuda(2)
 ce = nn.CrossEntropyLoss(weight= class_weights).cuda(2)
 
-#ce = nn.CrossEntropyLoss(ignore_index=2).to(device)
+ce = nn.CrossEntropyLoss().cuda(2)
+
+dice_loss = SoftDiceLoss(apply_nonlin=torch.sigmoid, **{'batch_dice': False, 'do_bg': True, 'smooth': 0})
 
 def UnetLoss(preds, targets):
     new_target = targets.clone()
     
-    #if(not new_target.shape == preds.shape):
-    #    diff=np.array(preds.shape) - np.array(new_target.shape)
-    #    p1d = (0, diff[4], 0, diff[3], 0, diff[2], 0, 0, 0, 0)
-    #    new_target = nn.functional.pad(new_target, p1d, "constant", 0)
-    
-    new_target = new_target
+    new_target = new_target.long()
     ce_loss = ce(preds, new_target)
+    ds_loss = dice_loss(preds, new_target)
+
     pred_labels = torch.max(preds, 1)[1]
-    mask = new_target != 2
+    mask = new_target != 10 
     
     
     acc = (pred_labels[mask] == new_target[mask]).float().mean()

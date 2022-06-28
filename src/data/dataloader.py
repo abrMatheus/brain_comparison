@@ -16,7 +16,7 @@ import torchio as tio
 
 def load_label_image(label_path, model):
     
-    if model == 'flimunet' or model == 'normal' or model == 'resunet':
+    if model == 'flimunet' or model == 'standard_unet' or model == 'resunet':
         #label_image = tio.LabelMap(label_path)
         label_image = utils.load_image(str(label_path),lab=False)
         #label_image = np.expand_dims(label_image,axis=0)
@@ -31,7 +31,7 @@ def load_image(image_path, model):
         image = utils.load_image(str(image_path))
         image = image.transpose((3, 0, 1, 2))
         image = torch.from_numpy(image)
-    elif model == 'normal' or model == 'resunet':
+    elif model == 'standard_unet' or model == 'resunet':
         image = tio.ScalarImage(image_path)[tio.DATA]
     else:
         raise NotImplementedError(f'model {model} not implemented')
