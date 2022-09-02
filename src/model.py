@@ -234,8 +234,8 @@ def IoU(gt, pred, ignore_label=-1, average='binary'):
 
 
 weights = [0.1, 1., 1., 1.]
-class_weights = torch.FloatTensor(weights).cuda(2)
-ce = nn.CrossEntropyLoss(weight= class_weights).cuda(2)
+class_weights = torch.FloatTensor(weights).cuda(3)
+ce = nn.CrossEntropyLoss(weight= class_weights).cuda(3)
 
 ##ce = nn.CrossEntropyLoss().cuda(2)
 
@@ -256,6 +256,7 @@ def UnetLoss(preds, targets):
     #print(f"shape {preds.shape} {new_target.shape}")
     #print(f"dtype {preds.dtype} {new_target.dtype}")
     #ce_loss = ce(preds, new_target)
+    
     loss = dice_loss(preds, new_target)
 
     pred_labels = torch.max(preds, 1)[1]

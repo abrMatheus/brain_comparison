@@ -15,7 +15,8 @@ import torchio as tio
 
 
 def load_label_image(label_path, model):
-    
+   
+    #print("loading",  label_path)
     if model == 'flimunet' or model == 'standard_unet' or model == 'resunet':
         #label_image = tio.LabelMap(label_path)
         label_image = utils.load_image(str(label_path),lab=False)
@@ -26,7 +27,7 @@ def load_label_image(label_path, model):
     return label_image
 
 def load_image(image_path, model):
-
+    #print("loading i", image_path)
     if model == 'flimunet':
         image = utils.load_image(str(image_path))
         image = image.transpose((3, 0, 1, 2))
@@ -83,7 +84,7 @@ class SegmDataset(Dataset):
             flair_img = self._transform(flair_img)
             t1gd_img = self._transform(t1gd_img)
             
-        sample = (flair_img, t1gd_img, label_image.astype(np.int64))
+        sample = (flair_img, t1gd_img, label_image.astype(np.int64), self._image_names[index])
         
         return sample 
 

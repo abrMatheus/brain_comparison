@@ -39,8 +39,8 @@ def get_train_transforms(mode: str) -> Callable:
 
 class BratsDataset(SubjectsDataset):
     subdir = {
-        'train': 'MICCAI_BraTS2020_TrainingData',
-        'val': 'MICCAI_BraTS2020_ValidationData',
+        'train': 'RSNA_ASNR_MICCAI_BraTS2021_TrainingData_16July2021',
+        'val': 'RSNA_ASNR_MICCAI_BraTS2021_ValidationData',
     }
     label_key = 'seg'
 
@@ -73,8 +73,13 @@ class BratsDataset(SubjectsDataset):
                 images['fake'] = tio.LabelMap(im_path)
                 label_img[label_img==4]=3
                 images[key] = label_img
-            else:
+            elif key == 'flair' or key =='t1ce':
                 images[key] = load_image(im_path, self.model)
+                images['fake'] = tio.ScalarImage(im_path)
+
+                if key=='flair':
+                    images['name'] = im_path.name.split("_flair")[0]
+            
 
             #print(f"image[{key}] has shape {images[key].shape}")
 
@@ -84,7 +89,7 @@ class BratsDataset(SubjectsDataset):
 
     def _load_subjects(self, directory: Path) -> Sequence[Subject]:
         subjects = []
-        for subdir in directory.glob('BraTS20_*'):
+        for subdir in directory.glob('BraTS2021_*'):
             if not subdir.is_dir():
                 continue
             subjects.append(self._subdir_to_subject(subdir))

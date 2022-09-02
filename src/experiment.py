@@ -112,6 +112,7 @@ class LitModel(pl.LightningModule):
         y_hat = self.forward(xf, xt1)
         y_hat = self._maybe_resize(y_hat, y.shape)
         #print("shapes", y_hat.shape, y.shape)
+
         loss, acc = UnetLoss(y_hat, y)
         
         self.log(f'{mode}_loss', loss, on_epoch=True, on_step=True)
@@ -175,20 +176,21 @@ def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers
     if datatype == 'brats':
         dataset = BratsDataset( datapath, mode='train', model=model)
         chunk_len = int(len(dataset) * 0.15)
-        train_ds, val_ds, test_ds = random_split(dataset,
-                                        [len(dataset) - 2 * chunk_len, chunk_len, chunk_len],
-                                        generator=th.Generator().manual_seed(42))
+        #train_ds, val_ds, test_ds = random_split(dataset,
+        #                                [len(dataset) - 2 * chunk_len, chunk_len, chunk_len],
+        #                                generator=th.Generator().manual_seed(42))
 
-        train_ds.dataset.set_transform(get_train_transforms('aug'))
-        val_ds.dataset.set_transform(get_test_transforms('aug'))
-        test_ds.dataset.set_transform(get_test_transforms('aug'))
 
-        trn_dl = DataLoader(train_ds, batch_size=batch_size,
-                                shuffle=True, num_workers=num_workers,
-                                persistent_workers=True)
+        #train_ds.dataset.set_transform(get_train_transforms('aug'))
+        #val_ds.dataset.set_transform(get_test_transforms('aug'))
+        #test_ds.dataset.set_transform(get_test_transforms('aug'))
 
-        val_dl = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
-        test_dl = DataLoader(test_ds, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
+        #trn_dl = DataLoader(train_ds, batch_size=batch_size,
+        #                        shuffle=True, num_workers=num_workers,
+        #                        persistent_workers=True)
+
+        #val_dl = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
+        test_dl = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
 
 
     elif datatype == 'ours':
@@ -203,8 +205,8 @@ def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers
     else:
         raise NotImplementedError(f'there is no {datatype}')
 
-    return trn_dl, val_dl, test_dl
-
+    #return trn_dl, val_dl, test_dl
+    return None, None, test_dl
 
 def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=None, network_depth=64,
                    train_encoder=False):

@@ -27,15 +27,53 @@ import sys
 from experiment import getInsideModel, LitModel, getDataloaders
 
 
-def save_predition(y_hat, batch, output_folder, count=0):
-    data = y_hat.detach().numpy()[0]
-    data = data.transpose(1,2,3,0).astype(np.int16)
+
+def maybe_resize(x: th.Tensor, shape: Tuple[int]) -> th.Tensor:
+        if x.shape[-3:] != shape[-3:]:
+            x = F.interpolate(x, size=shape[-3:],
+                            mode="trilinear", align_corners=True)
+        return x
+
+
+
+#save_pred_brats(y_hat, batch, './out', batch['name'])
+def save_pred_brats(y_hat, batch, output_folder, im_name):
+    data = maybe_resize(y_hat, batch['flair'].shape)
+
+    data = data.detach().numpy()[0]
+    data = data.transpose(3,2,1,0).astype(np.int16)
     data = data.argmax(axis=3)
     data = data.astype(np.int16)
+    data[data==3]=4
+
+
+    print(data.shape, batch['flair'].shape)
+
     affine = np.eye(4)*np.array([-1,-1,1,1])
     imgNib = nib.Nifti1Image(data, affine=affine)
 
-    name = str(count) + '.nii.gz'
+    name = str(im_name) + '.nii.gz'
+
+    output_path = os.path.join(output_folder , name)
+    print("saving to ", output_path)
+    nib.save(imgNib, output_path)
+
+def save_predition(y_hat, batch, output_folder, im_name):
+    
+    data = maybe_resize(y_hat, batch[1].shape)
+
+
+    data = data.detach().numpy()[0]
+    data = data.transpose(3,2,1,0).astype(np.int16)
+    data = data.argmax(axis=3)
+    data = data.astype(np.int16)
+    
+    print(data.shape, batch[1].shape)
+
+    affine = np.eye(4)*np.array([-1,-1,1,1])
+    imgNib = nib.Nifti1Image(data, affine=affine)
+
+    name = str(im_name) + '.nii.gz'
     
     output_path = os.path.join(output_folder , name)
     print("saving to ", output_path)
@@ -62,7 +100,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     logger = TensorBoardLogger('exp/logs', name=exp_name)
     trainer = pl.Trainer(
-        gpus=[2],
+        gpus=[3],
         #accelerator='ddp',
         precision=16,
         accumulate_grad_batches=1,#accum_batch_size,
@@ -84,34 +122,55 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 
     trainer.test(model, test_dl)
-    trainer.test(model, val_dl)
+    #trainer.test(model, val_dl)
 
-    #for step, batch in enumerate(val_dl):
+    #for step, batch in enumerate(test_dl):
     #    xf, xt, gt = batch[0], batch[1], batch[2]
     #    model.eval()
     #    y_hat = model.forward(xf, xt)
-    #    save_predition(y_hat, batch, './out', step)
+    #    save_predition(y_hat, batch, './out', batch[3][0])
+    #    #break
 
+   
+    for step, batch in enumerate(test_dl):
+         #print(type(batch))
+         #print(batch.keys())
+         #print('name', batch['name'])
+         xf,xt = batch['flair'], batch['t1ce']
+         y_hat = model.forward(xf,xt)
+         save_pred_brats(y_hat, batch, './out', batch['name'][0])
+         #break
 
     #utils.save_lids_model(insidemodel, arch, 'output_models', 'flim_ft')
 
 
 if __name__ == '__main__':
 
-    file_ckpt = sys.argv[1]
+    #file_ckpt = sys.argv[1]
 
     #file_ckpt = '/app/data/brain_comparison/exp/rigid_new_t1_modelepoch=97-val_loss=0.27-val_WT_dice=0.81_dice.ckpt'
-    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-                   archpath='/app/data/archs/new_small/arch.json',
-                   parampath='/app/data/new_model',
-                   datatype='ours', modeltype='flimunet',
-                   checkpoint_file=file_ckpt)
-
-
-    #file_ckpt = '/app/data/brain_comparison/exp/rigid_from_scratchepoch=78-val_loss=0.24-val_WT_dice=0.81_dice.ckpt'
     #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
     #               archpath='/app/data/archs/new_small/arch.json',
-    #               parampath=None,
+    #               parampath='/app/data/new_model',
     #               datatype='ours', modeltype='flimunet',
     #               checkpoint_file=file_ckpt)
+
+
+
+    file_ckpt = 'rigid_new_m_old_t1_adjepoch=36-val_loss=0.26-val_WT_dice=0.80_dice.ckpt'
+
+    #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+    #        archpath='/app/data/archs/new_small/arch.json',
+    #        parampath='/app/data/new_model',
+    #        datatype='ours', modeltype='flimunet',
+    #        checkpoint_file=file_ckpt)
+
+    run_experiment(datapath='/app/data/brats21',batchsize=1,
+            archpath='/app/data/archs/new_small/arch.json',
+            parampath='/app/data/new_model',
+            datatype='brats', modeltype='flimunet',
+            checkpoint_file=file_ckpt)
+
+
+
 
