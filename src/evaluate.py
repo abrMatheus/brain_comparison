@@ -183,17 +183,26 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     )
     trainer.test(model, test_dl)
 
-    for step, batch in enumerate(test_dl):
-        xf, xt, gt = batch[0], batch[1], batch[2]
-        model.eval()
-        y_hat = model.forward(xf, xt)
-        save_predition(y_hat, batch, './out', step)
+    #for step, batch in enumerate(test_dl):
+    #    xf, xt, gt = batch[0], batch[1], batch[2]
+    #    model.eval()
+    #    y_hat = model.forward(xf, xt)
+    #    save_predition(y_hat, batch, './out', step)
 
 if __name__ == '__main__':
 
     file_ckpt = sys.argv[1]
 
-    run_experiment(datapath='/dados/matheus/dados/glioblastoma/perc/50',batchsize=1, 
-                   archpath='/dados/matheus/git/u-net-with-flim2/archift3d.json',
-                   parampath='/dados/matheus/git/u-net-with-flim2/brain3d-large-param',
+    file_ckpt = '/app/data/brain_comparison/exp/rigid_new_t1_modelepoch=97-val_loss=0.27-val_WT_dice=0.81_dice.ckpt'
+    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1, 
+                   archpath='/app/data/archs/new_small/arch.json',
+                   parampath='/app/data/new_model',
                    checkpoint_file=file_ckpt)
+
+
+    file_ckpt = '/app/data/brain_comparison/exp/rigid_from_scratchepoch=78-val_loss=0.24-val_WT_dice=0.81_dice.ckpt'
+    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1, 
+                   archpath='/app/data/archs/new_small/arch.json',
+                   parampath='/app/data/new_model',
+                   checkpoint_file=file_ckpt)
+

@@ -11,7 +11,7 @@ from typing import Callable, Optional
 
 from functools import partial
 
-from .unet import UNet, decoder, encoder
+from .unet import StandUNet, decoder, encoder
 
 
 def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv3d:
@@ -88,9 +88,9 @@ class Bottleneck(nn.Module):
         return out
 
 
-class ResUNet(UNet):
+class ResUNet(StandUNet):
     def __init__(self, num_classes, in_channels=3, freeze_bn=False, depth=32):
-        super(UNet, self).__init__()
+        super(StandUNet, self).__init__()
 
         down_conv = partial(Bottleneck, downsample=partial(conv1x1, stride=2))
         up_conv = partial(Bottleneck, downsample=partial(conv1x1, stride=1))

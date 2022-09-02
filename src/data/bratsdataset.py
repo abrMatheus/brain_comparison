@@ -7,6 +7,8 @@ from torchio.data import SubjectsDataset, Subject
 import torchio.transforms as tr
 
 from .dataloader import load_image, load_label_image
+import numpy as np
+
 
 def get_test_transforms(mode: str) -> Callable:
     assert mode in ('basic', 'quantnorm', 'aug')
@@ -67,11 +69,18 @@ class BratsDataset(SubjectsDataset):
             key = re.findall(r'[a-z1-9]+(?=\.nii\.gz)', im_path.name)[0]
 
             if key == self.label_key:
-                images[key] = load_label_image(im_path, self.model)
+                label_img = load_label_image(im_path, self.model)
+                images['fake'] = tio.LabelMap(im_path)
+                label_img[label_img==4]=3
+                images[key] = label_img
             else:
                 images[key] = load_image(im_path, self.model)
 
-        return Subject(**images)
+            #print(f"image[{key}] has shape {images[key].shape}")
+
+        #print("images type", type(images))
+
+        return Subject(images) 
 
     def _load_subjects(self, directory: Path) -> Sequence[Subject]:
         subjects = []

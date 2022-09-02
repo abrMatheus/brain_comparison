@@ -22,16 +22,16 @@ def x2conv(in_channels, out_channels, inner_channels=None, stride=1):
 class encoder(nn.Module):
     def __init__(self, in_channels, out_channels, conv, do_pooling, stride):
         super(encoder, self).__init__()
-        self.down_conv = conv(in_channels, out_channels, stride=stride)
         if do_pooling:
             self.pool = nn.MaxPool3d(kernel_size=2, ceil_mode=True)
         else:
             self.pool = None
+        self.down_conv = conv(in_channels, out_channels,out_channels, stride=stride)
 
     def forward(self, x):
-        x = self.down_conv(x)
         if self.pool is not None:
             x = self.pool(x)
+        x = self.down_conv(x)
         return x
 
 
@@ -42,7 +42,7 @@ class decoder(nn.Module):
             self.up = nn.ConvTranspose3d(in_channels, in_channels // 2, kernel_size=2, stride=2)
         else:
             self.up = None
-        self.up_conv = conv(in_channels, out_channels)
+        self.up_conv = conv(in_channels, out_channels,out_channels)
 
     def forward(self, x_copy, x, interpolate=True):
         if self.up is not None:
@@ -66,18 +66,17 @@ class decoder(nn.Module):
         return x
 
 
-class UNet(nn.Module):
+class StandUNet(nn.Module):
     def __init__(self, num_classes, in_channels=3, freeze_bn=False, depth=32, conv=x2conv,
                  do_pooling=True, do_convT=True, down_stride=1):
         super().__init__()
 
-        self.start_conv = conv(in_channels, depth, stride=down_stride)
+        self.start_conv = conv(in_channels, depth, depth,stride=down_stride)
         self.down1 = encoder(depth, depth * 2, conv, do_pooling, down_stride)
         self.down2 = encoder(depth * 2, depth * 4, conv, do_pooling, down_stride)
         self.down3 = encoder(depth * 4, depth * 8, conv, do_pooling, down_stride)
-        self.down4 = encoder(depth * 8, depth * 16, conv, do_pooling, down_stride)
 
-        self.middle_conv = conv(depth * 16, depth * 16)
+        self.middle_conv = conv(depth * 8, depth * 16)
 
         self.up1 = decoder(depth * 16, depth * 8, conv, do_convT)
         self.up2 = decoder(depth * 8, depth * 4, conv, do_convT)
@@ -106,7 +105,7 @@ class UNet(nn.Module):
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
-        x = self.middle_conv(self.down4(x4))
+        x = self.middle_conv(x4)
 
         x = self.up1(x4, x)
         x = self.up2(x3, x)
@@ -127,4 +126,5 @@ class UNet(nn.Module):
         for module in self.modules():
             if isinstance(module, nn.BatchNorm3d):
                 module.eval()
+
 
