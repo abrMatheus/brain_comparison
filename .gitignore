@@ -1,3 +1,4 @@
 src/*__pycache__
 exp
 logs
+src/*/__pycache__
