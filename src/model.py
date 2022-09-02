@@ -243,7 +243,7 @@ ce = nn.CrossEntropyLoss(weight= class_weights).cuda(2)
 
 dice_loss = SoftDiceLoss(apply_nonlin=torch.sigmoid, **{'batch_dice': False, 'do_bg': True, 'smooth': 0})
 
-def UnetLoss(preds, targets):
+def UnetLoss(preds, targets, use_loss='CE'):
     new_target = targets.clone()
     
     #if(not new_target.shape == preds.shape):
@@ -255,8 +255,18 @@ def UnetLoss(preds, targets):
     #print(f"preds type {type(preds)}, new_target {type(new_target)}")
     #print(f"shape {preds.shape} {new_target.shape}")
     #print(f"dtype {preds.dtype} {new_target.dtype}")
-    #ce_loss = ce(preds, new_target)
-    loss = dice_loss(preds, new_target)
+    ce_loss = ce(preds, new_target)
+    ds_loss = dice_loss(preds, new_target)
+
+    
+    if use_loss=='CE':
+        loss = ce_loss
+    elif use_loss=='DS':
+        loss = ds_loss
+    elif use_loss == 'BOTH':
+        loss = ce_loss + ds_loss
+    else:
+        raise NotImplementedError(f'UnetLoss - there is no loss  {use_loss}')
 
     pred_labels = torch.max(preds, 1)[1]
     mask = new_target != 10 

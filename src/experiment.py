@@ -34,13 +34,19 @@ class LitModel(pl.LightningModule):
                           [128, 128, 128],
                           [255, 255, 255]], dtype=th.uint8)
 
-    def __init__(self, model: th.nn.Module, optim: str, lr: float) -> None:
+    def __init__(self, model: th.nn.Module, optim: str, lr: float, use_loss='CE') -> None:
         super().__init__()
         self.model = model
         self.optim = optim
         self.lr = lr
+        self.use_loss=use_loss
 
         self.class_weights = th.tensor([1, 1, 1, 1])
+        self.max_e=100
+
+
+    def poly_decay(self,i_epoch):
+        return (1-(i_epoch/self.max_e))**0.9
     
     def configure_optimizers(self):#necessario????
         if self.optim.lower() == 'adam':
@@ -49,7 +55,8 @@ class LitModel(pl.LightningModule):
             optim = th.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
         else:
             raise NotImplementedError
-        scheduler = th.optim.lr_scheduler.MultiStepLR(optim, milestones=[25, 45, 60, 80], gamma=0.9)
+        #scheduler = th.optim.lr_scheduler.MultiStepLR(optim, milestones=[35, 45], gamma=0.9)
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optim, lr_lambda=self.poly_decay)
         return {
             'optimizer': optim,
             'lr_scheduler': scheduler,
@@ -112,7 +119,7 @@ class LitModel(pl.LightningModule):
         y_hat = self.forward(xf, xt1)
         y_hat = self._maybe_resize(y_hat, y.shape)
         #print("shapes", y_hat.shape, y.shape)
-        loss, acc = UnetLoss(y_hat, y)
+        loss, acc = UnetLoss(y_hat, y, self.use_loss)
         
         self.log(f'{mode}_loss', loss, on_epoch=True, on_step=True)
         if mode == 'train':
@@ -170,7 +177,7 @@ def save_predition(y_hat, batch, output_folder, count=0):
     nib.save(imgNib, output_path)
 
 
-def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers=8):
+def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers=5):
 
     if datatype == 'brats':
         dataset = BratsDataset( datapath, mode='train', model=model)
@@ -243,7 +250,8 @@ def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=Non
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    parampath='/app/param',
                    datatype='brats', modeltype='flimunet',
-                   n_epochs=30, exp_name='test', lr=2.5e-4,train_encoder=False):
+                   n_epochs=30, exp_name='test', lr=2.5e-4,train_encoder=False,
+                   use_loss='CE'):
 
 
     insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath,
@@ -251,7 +259,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     #print(insidemodel)
     #exit()
-    model = LitModel(insidemodel, optim='adam', lr=lr)
+    model = LitModel(insidemodel, optim='adam', lr=lr, use_loss=use_loss)
 
     transform = transforms.Compose([ToTensor()])
     trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8)
@@ -278,7 +286,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     # training
     trainer.fit(model, trn_dl, val_dl)
 
-    #trainer.save_checkpoint(f'{exp_name}_final.ckpt')
+    trainer.save_checkpoint(f'exp/{exp_name}_final.ckpt')
 
     print(f"best model {model_checkpoint.best_model_path}")
 
@@ -293,9 +301,9 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     model.load_state_dict(checkpoint['state_dict'])
 
 
-    if arch is not None:
-        utils.save_lids_model(insidemodel.encoder1, arch, 'output_dir', exp_name + "/flair")
-        utils.save_lids_model(insidemodel.encoder2, arch, 'output_dir', exp_name + "/t1gd")
+    #if arch is not None:
+        #utils.save_lids_model(insidemodel.encoder1, arch, 'output_dir', exp_name + "/flair")
+        #utils.save_lids_model(insidemodel.encoder2, arch, 'output_dir', exp_name + "/t1gd")
 
 
     '''
@@ -313,33 +321,11 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 if __name__ == '__main__':
 
-    epochs   = 200
+    epochs   = 100
 
-    for i in range(1):
+    for i in range(3):
+        
         '''
-        #old_iqr
-        run_experiment(datapath='/app/glioblastoma/iqr/100',batchsize=1,
-                    archpath='/app/data/archs/small/arch.json',
-                    parampath='/app/data/roi_params/old_iqr',
-                    datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='old_iqr',
-                    train_encoder=False)
-        #won4_std
-        run_experiment(datapath='/app/glioblastoma/won4_std/100',batchsize=1,
-                    archpath='/app/data/archs/small/arch.json',
-                    parampath='/app/data/roi_params/won4_std',
-                    datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='won4_std',
-                    train_encoder=False)
-
-
-        #rigid_2
-        run_experiment(datapath='/app/glioblastoma/rigid/100_2',batchsize=1,
-                    archpath='/app/data/archs/new_small/arch.json',
-                    parampath='/app/data/new_model/',
-                    datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='rigid_flim_2',
-                    train_encoder=False)
         #rigid
         run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
                     archpath='/app/data/archs/new_small/arch.json',
@@ -348,57 +334,45 @@ if __name__ == '__main__':
                     n_epochs=int(epochs), exp_name='rigid_flim',
                     train_encoder=False)
 
-        #rigid with ft
-        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-                    archpath='/app/data/archs/new_small/arch.json',
-                    parampath='/app/data/new_model',
-                    datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='rigid_fine_tuning',
-                    train_encoder=True)
-        
-        #rigid with ft, frozen_norm
-        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-                    archpath='/app/data/archs/new_small/arch.json',
-                    parampath='/app/data/new_model',
-                    datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='rigid_fine_tuning_frozen_norm',
-                    train_encoder=True)
-
-        
 
         run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
                     archpath='/app/data/archs/new_small/arch.json',
-                    parampath='/app/data/brain_comparison/output_dir/rigid_fine_tuning_frozen_norm',
+                    parampath='/app/data/new_model/',
                     datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='super_model',
-                    train_encoder=True)
+                    n_epochs=int(epochs), exp_name='rigid_flim_dice',
+                    train_encoder=False, use_loss='DS')
 
         run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-                    archpath='/app/data/archs/new_small/ruim.json',
-                    parampath='/app/data/bad_model',
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath='/app/data/new_model/',
                     datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='bad_model',
+                    n_epochs=int(epochs), exp_name='rigid_flim_both',
+                    train_encoder=False, use_loss='BOTH')
+
+
+        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath=None,
+                    datatype='ours', modeltype='flimunet',
+                    n_epochs=int(epochs), exp_name='rigid_from_scratch',
+                    train_encoder=True)
+
+
+        # old t1 adj
+        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath='/app/data/new_model_old_t1_ajusted/',
+                    datatype='ours', modeltype='flimunet',
+                    n_epochs=int(epochs), exp_name='rigid_new_m_old_t1_adj',
                     train_encoder=False)
 
 
-        '''
-
-        '''
-        run_experiment(datapath='/app/brats',batchsize=1,
-                    archpath='/app/data/archs/new_small/arch.json',
-                    parampath='/app/data/new_model',
-                    datatype='brats', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='brats_model',
-                    train_encoder=True)
-
-
-
         run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
                     archpath='/app/data/archs/new_small/arch.json',
-                    parampath='output_dir/brats_model',
+                    parampath='/app/data/new_model_t1_old_f/',
                     datatype='ours', modeltype='flimunet',
-                    n_epochs=int(epochs), exp_name='brats_supermodel',
-                    train_encoder=True)
+                    n_epochs=int(epochs), exp_name='rigid_new_t1_model',
+                    train_encoder=False)
 
         '''
 
@@ -408,118 +382,94 @@ if __name__ == '__main__':
         #            parampath=None,
         #            datatype='ours', modeltype='flimunet',
         #            n_epochs=int(epochs), exp_name='rigid_from_scratch',
-        #            train_encoder=True)
+        #            train_encoder=True, use_loss='CE')
 
+        '''
+        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath=None,
+                    #parampath='/app/data/new_model_old_t1_ajusted/',lr=2.5e-4,
+                    datatype='ours', modeltype='flimunet',
+                    #n_epochs=int(epochs), exp_name='rigid_flim_t1_adjust_poly_sched1_celoss_noft',
+                    n_epochs=int(epochs), exp_name='rigid_flim_t1_adjust_poly_sched1_celoss_fs',
+                    train_encoder=True, use_loss='CE')
+
+        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath='/app/data/new_model_old_t1_ajusted/',lr=2.5e-4,
+                    datatype='ours', modeltype='flimunet',
+                    n_epochs=int(epochs), exp_name='rigid_flim_t1_adjust_poly_sched1_celoss_noft',
+                    train_encoder=False, use_loss='CE')
+        '''
         #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
         #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/data/new_model/',
+        #            parampath='/app/data/new_model_old_t1_ajusted/',lr=2.5e-4,
         #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(1), exp_name='rigid_flim_dice2',
-        #            train_encoder=False)
+        #            n_epochs=int(epochs), exp_name='test',
+        #            train_encoder=False, use_loss='CE')
 
 
-
-
-        # run_experiment(datapath='/app/brats',batchsize=1,
-        #             archpath='/app/data/archs/new_small/arch.json',
-        #             parampath=None,
-        #             datatype='brats', modeltype='flimunet',
-        #             n_epochs=int(epochs), exp_name='brats_model_noflim',
-        #             train_encoder=True)
-
-        #run_experiment(datapath='/app/brats',batchsize=1,
+        #run_experiment(datapath='/app/data/brats20_split',batchsize=1,
         #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/data/new_model/',
-        #            datatype='brats', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='brats_std_flim',
-        #            train_encoder=False)
-
-
-        #run_experiment(datapath='/app/brats',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath=None,
-        #            datatype='brats', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='brats_from_scratch',
-        #            train_encoder=True)
-
-        #run_experiment(datapath='/app/brats',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/data/new_model/',
-        #            datatype='brats', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='brats_std_flim_ft',
-        #            train_encoder=True)
-
-
-        # old t1 adj
-        #run_experiment(datapath='/app/glioblastoma/rigid_small/100',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/data/new_model_old_t1_ajusted/',
+        #            parampath='/app/data/builder_brats/final_model',lr=2.5e-4,
         #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='rigid_new_m_old_t1_adj_small_train',
-        #            train_encoder=False)
-        #
-        #run_experiment(datapath='/app/glioblastoma/rigid_small2/100',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/data/new_model_old_t1_ajusted/',
-        #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='rigid_new_m_old_t1_adj_small_train2',
-        #            train_encoder=False)
+        #            n_epochs=int(30), exp_name='brats_20_15tr_3val',
+        #            train_encoder=False, use_loss='BOTH')
 
-
-        # FS 
-        #run_experiment(datapath='/app/glioblastoma/rigid_small2/100',batchsize=1,
+        
+        #################IMPORTANTE
+        #run_experiment(datapath='/app/data/brats20_split',batchsize=1,
         #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath=None,
+        #            parampath='/app/data/new_model_old_t1_ajusted/',lr=2.5e-4,
         #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='fs_rigid_new_m_old_t1_adj_small_train2',
-        #            train_encoder=True)
+        #            n_epochs=int(100), exp_name='brats_20_15tr_3val',
+        #            train_encoder=False, use_loss='BOTH')
 
 
         
+        ####################################################################################
+        
+        #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+        #            archpath='/app/data/archs/new_small/arch.json',
+        #            parampath='/app/data/new_model_old_t1_ajusted/',
+        #            datatype='ours', modeltype='flimunet',
+        #            n_epochs=int(epochs), exp_name='rigid_new_m_old_t1_adj_new_sched',
+        #            train_encoder=False, use_loss='BOTH')
 
-        run_experiment(datapath='/app/glioblastoma/rigid_small2/100',batchsize=1,
-                    archpath='/app/data/archs/new_small/arch.json',
-                    parampath=None,
-                    datatype='ours', modeltype='standard_unet',
-                    n_epochs=int(epochs), exp_name='rigid_stand_unet_small2',
-                    train_encoder=True)
 
+        #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+        #            archpath='/app/data/archs/new_small/arch.json',
+        #            parampath='/app/data/new_model_old_t1_ajusted/',
+        #            datatype='ours', modeltype='flimunet',
+        #            n_epochs=int(epochs), exp_name='rigid_new_m_old_t1_adj_new_sched_ft',
+        #            train_encoder=True, use_loss='BOTH')
 
-        run_experiment(datapath='/app/glioblastoma/rigid_small/100',batchsize=1,
-                    archpath='/app/data/archs/new_small/arch.json',
-                    parampath=None,
-                    datatype='ours', modeltype='standard_unet',
-                    n_epochs=int(epochs), exp_name='rigid_stand_unet_small',
-                    train_encoder=True)
 
         run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
                     archpath='/app/data/archs/new_small/arch.json',
                     parampath=None,
-                    datatype='ours', modeltype='standard_unet',
-                    n_epochs=int(epochs), exp_name='rigid_stand_unet',
-                    train_encoder=True)
+                    datatype='ours', modeltype='flimunet',
+                    n_epochs=int(epochs), exp_name='rigid_from_scratch',
+                    train_encoder=True, use_loss='BOTH')
+
+
+        run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath='/app/no_select_model/',
+                    datatype='ours', modeltype='flimunet',
+                    n_epochs=int(epochs), exp_name='rigid_no_select_ft',
+                    train_encoder=False, use_loss='BOTH')
 
 
 
+        ######################################################################
+
+
+        
         #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
+        #            archpath='/app/data/archs/new_small_plus/arch.json',
         #            parampath='/app/data/new_model_old_t1_ajusted/',
         #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='rigid_new_m_old_t1_adj_ft',
-        #            train_encoder=True)
+        #            n_epochs=int(epochs), exp_name='rigid_extra_layer',
+        #            train_encoder=False, use_loss='DS')
 
-
-        #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/no_select_model/',
-        #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='rigid_no_select',
-        #            train_encoder=False)
-
-
-        #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-        #            archpath='/app/data/archs/new_small/arch.json',
-        #            parampath='/app/data/new_model_t1_old_f/',
-        #            datatype='ours', modeltype='flimunet',
-        #            n_epochs=int(epochs), exp_name='rigid_new_t1_model',
-        #            train_encoder=False)
