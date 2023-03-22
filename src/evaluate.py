@@ -11,7 +11,8 @@ from torchvision import transforms
 from torch_snippets import *
 
 from model import UNet, UnetLoss, train_batch, validate_batch, get_device, IoU
-from dataloader import SegmDataset, ToTensor
+from datas.dataloader import SegmDataset, ToTensor
+from datas.bratsdataset import BratsDataset, get_train_transforms, get_test_transforms
 import torch as th
 
 
@@ -24,185 +25,153 @@ from monai.visualize.img2tensorboard import add_animated_gif
 import nibabel as nib
 import sys
 
-class LitModel(pl.LightningModule):
-    colormap = th.tensor([[0, 0, 0],
-                          [64, 64, 64],
-                          [128, 128, 128],
-                          [255, 255, 255]], dtype=th.uint8)
+from experiment import getInsideModel, LitModel, getDataloaders
 
-    def __init__(self, model: th.nn.Module, optim: str, lr: float) -> None:
-        super().__init__()
-        self.model = model
-        self.optim = optim
-        self.lr = lr
 
-        self.class_weights = th.tensor([0.1, 1, 1, 1])
-    
-    def configure_optimizers(self):#necessario????
-        if self.optim.lower() == 'adam':
-            optim = th.optim.Adam(self.parameters(), lr=self.lr)
-        elif self.optim.lower() == 'sgd':
-            optim = th.optim.SGD(self.parameters(), lr=self.lr, momentum=0.9)
-        else:
-            raise NotImplementedError
-        scheduler = th.optim.lr_scheduler.MultiStepLR(optim, milestones=[35, 45], gamma=0.25)
-        return {
-            'optimizer': optim,
-            'lr_scheduler': scheduler,
-            'monitor': 'val_loss',
-        }
 
-    @staticmethod
-    #necessario??
-    def _maybe_resize(x: th.Tensor, shape: Tuple[int]) -> th.Tensor:
+def maybe_resize(x: th.Tensor, shape: Tuple[int]) -> th.Tensor:
         if x.shape[-3:] != shape[-3:]:
             x = F.interpolate(x, size=shape[-3:],
                             mode="trilinear", align_corners=True)
         return x
 
-    @staticmethod
-    #necessario??
-    def _get_2D_slice(x: th.Tensor) -> th.Tensor:
-        """ iteratively slice the array in the middle until it is 2D"""
-        x = x.cpu()
-        while x.ndim != 3:
-            x = x[0]
-        x = x[:, :, x.shape[2] // 2]
-        return x
-    
-    def _color_mask(self, x: th.Tensor) -> th.Tensor:
-        assert x.ndim == 3
-        return self.colormap[x].permute((3, 0, 1, 2))
-
-    def _add_gif(self, x: th.Tensor, tag: str) -> None:
-        add_animated_gif(
-            writer=self.logger.experiment,
-            tag=tag,
-            image_tensor=x.cpu(),
-            max_out=1,
-            scale_factor=1 if x.shape[0] == 3 else 255,
-            global_step=self.global_step
-        )
-        
-    def forward(self, xf: th.Tensor, xt1: th.Tensor) -> th.Tensor:
-        return self.model.forward(xf, xt1)
-
-    def _step(self, batch: Tuple[th.Tensor], mode: str) -> Any:
-        y   = batch[2]
-        xt1 = batch[1]
-        xf  = batch[0]
-
-        y_hat = self.forward(xf, xt1)
-        y_hat = self._maybe_resize(y_hat, y.shape)
-        loss, acc = UnetLoss(y_hat, y)
-        
-        self.log(f'{mode}_loss', loss, on_epoch=True, on_step=True)
-        if mode == 'train':
-            return loss
-        elif mode == 'val' or mode == 'test':
-            logits = th.softmax(y_hat, dim=1)
-            dice   = multiclass_dice(logits, y)
-            prec   = multiclass_sensitivity(logits, y)
-            metrics = {
-                f'{mode}_WT_dice': dice[1],
-                f'{mode}_TC_dice': dice[2],
-                f'{mode}_ET_dice': dice[3],
-
-                f'{mode}_WT_sens': prec[1],
-                f'{mode}_TC_sens': prec[2],
-                f'{mode}_ET_sens': prec[3],
-            }
-            self.log_dict(metrics)
-            if self.global_rank == 0:
-                preds = logits.argmax(dim=1)
-                self._add_gif(xf[0, :1], f'{mode}/flair')
-                self._add_gif(xt1[0, :1], f'{mode}/t1ce')
-                self._add_gif(self._color_mask(y[0,0]), f'{mode}/gt')
-                self._add_gif(self._color_mask(preds[0]), f'{mode}/pred')
-            
-            return metrics
-
-        else:
-            raise NotImplementedError
-    
-    def training_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> th.Tensor:
-        return self._step(batch, 'train')
-
-    def validation_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> Dict:
-        return self._step(batch, mode='val')
-
-    def test_step(self, batch: Tuple[th.Tensor], batch_idx: int) -> th.Tensor:
-        return self._step(batch, mode='test')
 
 
-def save_predition(y_hat, batch, output_folder, count=0):
-    data = y_hat.detach().numpy()[0]
-    data = data.transpose(1,2,3,0).astype(np.int16)
+#save_pred_brats(y_hat, batch, './out', batch['name'])
+def save_pred_brats(y_hat, batch, output_folder, im_name):
+    data = maybe_resize(y_hat, batch['flair'].shape)
+
+    data = data.detach().numpy()[0]
+    data = data.transpose(3,2,1,0).astype(np.int16)
     data = data.argmax(axis=3)
     data = data.astype(np.int16)
+    data[data==3]=4
+
+
+    print(data.shape, batch['flair'].shape)
+
     affine = np.eye(4)*np.array([-1,-1,1,1])
     imgNib = nib.Nifti1Image(data, affine=affine)
 
-    name = str(count) + '.nii.gz'
+    name = str(im_name) + '_seg.nii.gz'
+
+    output_path = os.path.join(output_folder , name)
+    print("saving to ", output_path)
+    nib.save(imgNib, output_path)
+
+def save_predition(y_hat, batch, output_folder, im_name):
+    
+    data = maybe_resize(y_hat, batch[1].shape)
+
+
+    data = data.detach().numpy()[0]
+    data = data.transpose(3,2,1,0).astype(np.int16)
+    data = data.argmax(axis=3)
+    data = data.astype(np.int16)
+    
+    print(data.shape, batch[1].shape)
+
+    affine = np.eye(4)*np.array([-1,-1,1,1])
+    imgNib = nib.Nifti1Image(data, affine=affine)
+
+    name = str(im_name) + '.nii.gz'
     
     output_path = os.path.join(output_folder , name)
     print("saving to ", output_path)
     nib.save(imgNib, output_path)
 
+
+def getDataloaders_brats(datapath, transform, batch_size, model, num_workers=5):
+
+    dataset = BratsDataset( datapath, mode='train', model=model)
+    test_dl = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
+    return test_dl
+
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
-                   parampath='brain3d-param-small', n_epochs=30, exp_name='test',
-                   checkpoint_file='model.ckpt'):
+                   parampath='brain3d-param-small', n_epochs=1, exp_name='test',
+                   checkpoint_file='model.ckpt',modeltype='flimunet', datatype='ours', use_bias=False):
+    
+    insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath, use_bias=use_bias)
 
-    device = get_device()
-
-    arch = utils.load_architecture(archpath)
-
-    #input_shape = [H, W, C] or [C]
-    encoder = utils.build_model(arch, input_shape=[3])
-    encoder2 = utils.build_model(arch, input_shape=[3])
-
-
-    num_classes = 4
-    u_net = UNet(encoder1=encoder, encoder2=encoder2, out_channels=num_classes)
-    model = LitModel(u_net, optim='adam', lr=1e-3)
+    model = LitModel(insidemodel, optim='adam', lr=2e-4)
 
     transform = transforms.Compose([ToTensor()])
-    test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True)
-    #test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True)
-    test_dl = DataLoader(test_ds, batch_size=batchsize, num_workers=8)
-    
+    if datatype=='ours':
+        trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8)
+    elif datatype=='brats':
+        test_dl = getDataloaders_brats(datapath, transform, batchsize, modeltype, num_workers=8)
+
+    model_checkpoint = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath='exp/',
+        filename=exp_name + '{epoch:02d}-{val_loss:.2f}-{val_WT_dice:.2f}_val',
+        save_top_k=3,
+        mode='min',
+    )
+
+    logger = TensorBoardLogger('exp/logs', name=exp_name)
+    trainer = pl.Trainer(
+        gpus=[1],
+        #accelerator='ddp',
+        precision=16,
+        accumulate_grad_batches=1,#accum_batch_size,
+        max_epochs=n_epochs,
+        logger=logger,
+        callbacks=[LearningRateMonitor(logging_interval='step'), model_checkpoint],
+    )
+
+
+    print('file', checkpoint_file)
     checkpoint = th.load(checkpoint_file)
+    #print("state_dict keys", checkpoint['state_dict'].keys())
     model.load_state_dict(checkpoint['state_dict'])
 
-    trainer = pl.Trainer(
-        gpus=1,
-        precision=16,
-        accumulate_grad_batches=1,
-        terminate_on_nan=True,
-        max_epochs=n_epochs,
-    )
-    trainer.test(model, test_dl)
+    model=model.cuda(1)
 
-    #for step, batch in enumerate(test_dl):
-    #    xf, xt, gt = batch[0], batch[1], batch[2]
-    #    model.eval()
-    #    y_hat = model.forward(xf, xt)
-    #    save_predition(y_hat, batch, './out', step)
+
+    if datatype == 'ours':
+
+        for step, batch in enumerate(test_dl):
+            xf, xt, gt = batch[0], batch[1], batch[2]
+            model.eval()
+            print('min max', xf.min(), xf.max(), xt.min(), xt.max())
+            print('shape', xf.shape, xt.shape)
+            break
+            y_hat = model.forward(xf.cuda(1), xt.cuda(1))
+            save_predition(y_hat.detach().cpu(), batch, './out', batch[3][0])
+            #break
+
+    elif datatype == 'brats':
+        for step, batch in enumerate(test_dl):
+           print(type(batch))
+           print(batch.keys())
+           print('name', batch['name'])
+           xf,xt = batch['flair'], batch['t1ce']
+           print('min max', xf.min(), xf.max(), xt.min(), xt.max())
+           print('shape', xf.shape, xt.shape)
+           break
+           y_hat = model.forward(xf.cuda(1),xt.cuda(1))
+           save_pred_brats(y_hat.detach().cpu(), batch, './out', batch['name'][0])
+
+    #utils.save_lids_model(insidemodel, arch, 'output_models', 'flim_ft')
+
 
 if __name__ == '__main__':
 
-    file_ckpt = sys.argv[1]
+    file_ckpt='/app/data/brain_comparison_bias_fix2enc/exp/biased_adj_FIX_bothLoss_e-4_b1_1gpu_polyepoch=61-val_loss=0.65-val_WT_dice=0.78_dice.ckpt'
+    run_experiment(
+            datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            #datapath='/app/data/', batchsize=1, #for the brats we do not pass the whole path
+            archpath='/app/data/archs/new_small/arch.json',
+            parampath='/app/data/test_bias_2enc/new_t1gd',
+            datatype='ours', modeltype='flimunet',use_bias=True,
+            checkpoint_file=file_ckpt)
 
-    file_ckpt = '/app/data/brain_comparison/exp/rigid_new_t1_modelepoch=97-val_loss=0.27-val_WT_dice=0.81_dice.ckpt'
-    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1, 
-                   archpath='/app/data/archs/new_small/arch.json',
-                   parampath='/app/data/new_model',
-                   checkpoint_file=file_ckpt)
-
-
-    file_ckpt = '/app/data/brain_comparison/exp/rigid_from_scratchepoch=78-val_loss=0.24-val_WT_dice=0.81_dice.ckpt'
-    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1, 
-                   archpath='/app/data/archs/new_small/arch.json',
-                   parampath='/app/data/new_model',
-                   checkpoint_file=file_ckpt)
-
+    file_ckpt='/app/data/bkp_sipaim_brain_comp/brain_comparison/exp/rigid_no_selectepoch=18-val_loss=0.33-val_WT_dice=0.78_dice.ckpt'
+    run_experiment(
+            #datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            datapath='/app/data/', batchsize=1, #for the brats we do not pass the whole path
+            archpath='/app/data/archs/new_small/arch.json',
+            parampath='/app/data/test_bias_2enc/new_t1gd',
+            datatype='brats', modeltype='flimunet',use_bias=False,
+            checkpoint_file=file_ckpt)
