@@ -30,7 +30,7 @@ def get_device():
     if not gpu:
         device = torch.device('cpu')
     else:
-        device = torch.device(0)
+        device = torch.device(1)
 
     return device
 
@@ -234,8 +234,11 @@ def IoU(gt, pred, ignore_label=-1, average='binary'):
 
 
 weights = [0.1, 1., 1., 1.]
-class_weights = torch.FloatTensor(weights).cuda(2)
-ce = nn.CrossEntropyLoss(weight= class_weights).cuda(2)
+# class_weights = torch.FloatTensor(weights).cuda(1)
+# ce = nn.CrossEntropyLoss(weight= class_weights).cuda(1)
+
+class_weights = torch.FloatTensor(weights)
+ce = nn.CrossEntropyLoss(weight = class_weights)
 
 ##ce = nn.CrossEntropyLoss().cuda(2)
 
@@ -251,10 +254,16 @@ def UnetLoss(preds, targets, use_loss='CE'):
     #    p1d = (0, diff[4], 0, diff[3], 0, diff[2], 0, 0, 0, 0)
     #    new_target = nn.functional.pad(new_target, p1d, "constant", 0)
     
+    
     new_target = new_target.long()
     #print(f"preds type {type(preds)}, new_target {type(new_target)}")
     #print(f"shape {preds.shape} {new_target.shape}")
     #print(f"dtype {preds.dtype} {new_target.dtype}")
+    
+    gpu_num = preds.get_device()
+
+    ce = nn.CrossEntropyLoss(weight = class_weights).cuda(gpu_num)
+    
     ce_loss = ce(preds, new_target)
     ds_loss = dice_loss(preds, new_target)
 
@@ -275,23 +284,45 @@ def UnetLoss(preds, targets, use_loss='CE'):
     acc = (pred_labels[mask] == new_target[mask]).float().mean()
     return loss, acc
 
+def _maybe_resize(x, shape):
+        if x.shape[-3:] != shape[-3:]:
+            x = F.interpolate(x, size=shape[-3:],
+                            mode="trilinear", align_corners=True)
+        return x
 
-def train_batch(model, data, optimizer, criterion, device='cpu'):
-    ims, ce_masks = data[0].to(device), data[1].to(device)
-    _masks = model(ims)
+from metrics.metrics import multiclass_dice, multiclass_sensitivity
+
+def train_batch(model, data, optimizer, criterion, device='cpu', use_loss='CE'):
+    flair, t1gd, y = data[0].to(device), data[1].to(device) , data[2].to(device)
+    y_hat = model(flair, t1gd)
+
+    y_hat = _maybe_resize(y_hat, y.shape)
+
     optimizer.zero_grad()
-    loss, acc = criterion(_masks, ce_masks)
+    loss, acc = criterion(y_hat, y, use_loss)
     loss.backward()
     optimizer.step()
-    return loss.item(), acc.item()
+
+    torch.cuda.empty_cache()
+
+    logits = th.softmax(y_hat, dim=1)
+    dice   = multiclass_dice(logits, y)
+
+    return loss.item(), acc.item(), dice
+
 
 @torch.no_grad()
-def validate_batch(model, data, criterion, device='cpu'):
-    ims, masks = data[0].to(device), data[1].to(device)
-    _masks = model(ims)
-    loss, acc = criterion(_masks, masks)
-    
-    diff=np.array(masks.shape) - np.array(_masks.shape)
-    p1d = (0, diff[4], 0, diff[3], 0, diff[2], 0, 0, 0, 0)
-    _masks = nn.functional.pad(_masks, p1d, "constant", 0)
-    return loss.item(), acc.item(), torch.max(_masks, 1)[1], masks
+def validate_batch(model, data, criterion, device='cpu', use_loss='CE'):
+    flair, t1gd, y = data[0].to(device), data[1].to(device) , data[2].to(device)
+    y_hat = model(flair, t1gd)
+
+    y_hat = _maybe_resize(y_hat, y.shape)
+
+    loss, acc = criterion(y_hat, y, use_loss)
+
+    torch.cuda.empty_cache()
+
+    logits = th.softmax(y_hat, dim=1)
+    dice   = multiclass_dice(logits, y)
+
+    return loss.item(), acc.item(), dice

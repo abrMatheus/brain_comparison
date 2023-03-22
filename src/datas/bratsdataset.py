@@ -39,7 +39,7 @@ def get_train_transforms(mode: str) -> Callable:
 
 class BratsDataset(SubjectsDataset):
     subdir = {
-        'train': 'MICCAI_BraTS2020_TrainingData',
+        'train': 'RSNA_ASNR_MICCAI_BraTS2021_TrainingData_16July2021_std',
         'val': 'MICCAI_BraTS2020_ValidationData',
     }
     label_key = 'seg'
@@ -79,12 +79,12 @@ class BratsDataset(SubjectsDataset):
             #print(f"image[{key}] has shape {images[key].shape}")
 
         #print("images type", type(images))
-
+        images['name']=str(im_path).split("/")[-1].split("_")[-3] + "_" +str(im_path).split("/")[-1].split("_")[-2]
         return Subject(images) 
 
     def _load_subjects(self, directory: Path) -> Sequence[Subject]:
         subjects = []
-        for subdir in directory.glob('BraTS20_*'):
+        for subdir in directory.glob('BraTS2021_*'):
             if not subdir.is_dir():
                 continue
             subjects.append(self._subdir_to_subject(subdir))

@@ -11,7 +11,8 @@ from torchvision import transforms
 from torch_snippets import *
 
 from model import UNet, UnetLoss, train_batch, validate_batch, get_device, IoU
-from data.dataloader import SegmDataset, ToTensor
+from datas.dataloader import SegmDataset, ToTensor
+from datas.bratsdataset import BratsDataset, get_train_transforms, get_test_transforms
 import torch as th
 
 
@@ -52,7 +53,7 @@ def save_pred_brats(y_hat, batch, output_folder, im_name):
     affine = np.eye(4)*np.array([-1,-1,1,1])
     imgNib = nib.Nifti1Image(data, affine=affine)
 
-    name = str(im_name) + '.nii.gz'
+    name = str(im_name) + '_seg.nii.gz'
 
     output_path = os.path.join(output_folder , name)
     print("saving to ", output_path)
@@ -79,16 +80,26 @@ def save_predition(y_hat, batch, output_folder, im_name):
     print("saving to ", output_path)
     nib.save(imgNib, output_path)
 
+
+def getDataloaders_brats(datapath, transform, batch_size, model, num_workers=5):
+
+    dataset = BratsDataset( datapath, mode='train', model=model)
+    test_dl = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
+    return test_dl
+
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    parampath='brain3d-param-small', n_epochs=1, exp_name='test',
-                   checkpoint_file='model.ckpt',modeltype='flimunet', datatype='ours'):
+                   checkpoint_file='model.ckpt',modeltype='flimunet', datatype='ours', use_bias=False):
     
-    insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath)
+    insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath, use_bias=use_bias)
 
     model = LitModel(insidemodel, optim='adam', lr=2e-4)
 
     transform = transforms.Compose([ToTensor()])
-    trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8)
+    if datatype=='ours':
+        trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8)
+    elif datatype=='brats':
+        test_dl = getDataloaders_brats(datapath, transform, batchsize, modeltype, num_workers=8)
 
     model_checkpoint = ModelCheckpoint(
         monitor='val_loss',
@@ -100,11 +111,10 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
     logger = TensorBoardLogger('exp/logs', name=exp_name)
     trainer = pl.Trainer(
-        gpus=[2],
+        gpus=[1],
         #accelerator='ddp',
         precision=16,
         accumulate_grad_batches=1,#accum_batch_size,
-        terminate_on_nan=True,
         max_epochs=n_epochs,
         logger=logger,
         callbacks=[LearningRateMonitor(logging_interval='step'), model_checkpoint],
@@ -116,86 +126,52 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     #print("state_dict keys", checkpoint['state_dict'].keys())
     model.load_state_dict(checkpoint['state_dict'])
 
-
-    # training
-    #trainer.fit(model, trn_dl, val_dl)
+    model=model.cuda(1)
 
 
-    trainer.test(model, test_dl)
-    #trainer.test(model, val_dl)
+    if datatype == 'ours':
 
-    #for step, batch in enumerate(test_dl):
-    #    xf, xt, gt = batch[0], batch[1], batch[2]
-    #    model.eval()
-    #    y_hat = model.forward(xf, xt)
-    #    save_predition(y_hat, batch, './out', batch[3][0])
-    #    #break
+        for step, batch in enumerate(test_dl):
+            xf, xt, gt = batch[0], batch[1], batch[2]
+            model.eval()
+            print('min max', xf.min(), xf.max(), xt.min(), xt.max())
+            print('shape', xf.shape, xt.shape)
+            break
+            y_hat = model.forward(xf.cuda(1), xt.cuda(1))
+            save_predition(y_hat.detach().cpu(), batch, './out', batch[3][0])
+            #break
 
-   
-    #for step, batch in enumerate(test_dl):
-    #     #print(type(batch))
-    #     #print(batch.keys())
-    #     #print('name', batch['name'])
-    #     xf,xt = batch['flair'], batch['t1ce']
-    #     y_hat = model.forward(xf,xt)
-    #     save_pred_brats(y_hat, batch, './out', batch['name'][0])
-    #     #break
+    elif datatype == 'brats':
+        for step, batch in enumerate(test_dl):
+           print(type(batch))
+           print(batch.keys())
+           print('name', batch['name'])
+           xf,xt = batch['flair'], batch['t1ce']
+           print('min max', xf.min(), xf.max(), xt.min(), xt.max())
+           print('shape', xf.shape, xt.shape)
+           break
+           y_hat = model.forward(xf.cuda(1),xt.cuda(1))
+           save_pred_brats(y_hat.detach().cpu(), batch, './out', batch['name'][0])
 
     #utils.save_lids_model(insidemodel, arch, 'output_models', 'flim_ft')
 
 
 if __name__ == '__main__':
 
-    #file_ckpt = sys.argv[1]
-
-    #file_ckpt = '/app/data/brain_comparison/exp/rigid_new_t1_modelepoch=97-val_loss=0.27-val_WT_dice=0.81_dice.ckpt'
-    #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-    #               archpath='/app/data/archs/new_small/arch.json',
-    #               parampath='/app/data/new_model',
-    #               datatype='ours', modeltype='flimunet',
-    #               checkpoint_file=file_ckpt)
-
-    '''
-    os.system("mkdir out")
-
-    file_ckpt = '/app/data/brain_comparison_loss/exp/rigid_new_m_old_t1_adj_bothepoch=71-val_loss=0.64-val_WT_dice=0.78_dice.ckpt'
-
-    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+    file_ckpt='/app/data/brain_comparison_bias_fix2enc/exp/biased_adj_FIX_bothLoss_e-4_b1_1gpu_polyepoch=61-val_loss=0.65-val_WT_dice=0.78_dice.ckpt'
+    run_experiment(
+            datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            #datapath='/app/data/', batchsize=1, #for the brats we do not pass the whole path
             archpath='/app/data/archs/new_small/arch.json',
-            parampath='/app/data/new_model',
-            #parampath=None,
-            datatype='ours', modeltype='flimunet',
+            parampath='/app/data/test_bias_2enc/new_t1gd',
+            datatype='ours', modeltype='flimunet',use_bias=True,
             checkpoint_file=file_ckpt)
 
-    os.system("mv out out_test")
-
-
-    os.system("mkdir out")
-
-    file_ckpt = '/app/data/brain_comparison_loss/exp_fs/rigid_from_scratchepoch=67-val_loss=0.61-val_WT_dice=0.80_dice.ckpt'
-    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
+    file_ckpt='/app/data/bkp_sipaim_brain_comp/brain_comparison/exp/rigid_no_selectepoch=18-val_loss=0.33-val_WT_dice=0.78_dice.ckpt'
+    run_experiment(
+            #datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            datapath='/app/data/', batchsize=1, #for the brats we do not pass the whole path
             archpath='/app/data/archs/new_small/arch.json',
-            #parampath='/app/data/new_model',
-            parampath=None,
-            datatype='ours', modeltype='flimunet',
-            checkpoint_file=file_ckpt)
-
-    os.system("mv out out_fs")
-
-    '''
-    #file_ckpt = '/app/data/brain_comparison_loss/exp/rigid_extra_layerepoch=83-val_loss=0.67-val_WT_dice=0.79_dice.ckpt'
-
-    #run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-    #        archpath='/app/data/archs/new_small_plus/arch.json',
-    #        parampath='/app/data/new_model_old_t1_ajusted',
-    #        datatype='ours', modeltype='flimunet',
-    #        checkpoint_file=file_ckpt)
-
-
-    file_ckpt = 'exp/rigid_flim_t1_adjust_poly_sched1_celoss_noft_final.ckpt'
-
-    run_experiment(datapath='/app/glioblastoma/rigid/100',batchsize=1,
-            archpath='/app/data/archs/new_small/arch.json',
-            parampath='/app/data/new_model_old_t1_ajusted',
-            datatype='ours', modeltype='flimunet',
+            parampath='/app/data/test_bias_2enc/new_t1gd',
+            datatype='brats', modeltype='flimunet',use_bias=False,
             checkpoint_file=file_ckpt)
