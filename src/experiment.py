@@ -364,17 +364,25 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 if __name__ == '__main__':
 
-    epochs   = 100 
+    epochs   = 10 
 
     for i in range(1):
 
         
         run_experiment(datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
                     archpath='/app/data/archs/new_small/arch.json',
-                    #parampath='/app/data/biased_model_2encoders',
-                    parampath='/app/data/test_bias_2enc/biased_adjusted_model',
+                    parampath='/app/data/ms_files/bkp_models/2enc/new_model_old_t1_adjusted/',
                     datatype='ours', modeltype='flimunet',lr=2.5e-4,
-                    n_epochs=int(epochs), exp_name='biased_adj_FIX_bothLoss_e-4_b1_1gpu_poly',
+                    n_epochs=int(epochs), exp_name='FLIM_adj_FIX_bothLoss_e-4_b1_1gpu_poly',
+                    train_encoder=False, use_loss="BOTH", use_bias=False)
+
+
+        run_experiment(datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/new_small/arch.json',
+                    parampath='/app/data/ms_files/bkp_models/2enc_bias/biased_model_2encoders',
+                    datatype='ours', modeltype='flimunet',lr=2.5e-4,
+                    n_epochs=int(epochs), exp_name='biased_bias_adj_FIX_bothLoss_e-4_b1_1gpu_poly',
                     train_encoder=False, use_loss="BOTH", use_bias=True)
+        
 
 

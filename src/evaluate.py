@@ -134,22 +134,20 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
         for step, batch in enumerate(test_dl):
             xf, xt, gt = batch[0], batch[1], batch[2]
             model.eval()
-            print('min max', xf.min(), xf.max(), xt.min(), xt.max())
-            print('shape', xf.shape, xt.shape)
-            break
+            #print('min max', xf.min(), xf.max(), xt.min(), xt.max())
+            #print('shape', xf.shape, xt.shape)
             y_hat = model.forward(xf.cuda(1), xt.cuda(1))
             save_predition(y_hat.detach().cpu(), batch, './out', batch[3][0])
-            #break
 
     elif datatype == 'brats':
         for step, batch in enumerate(test_dl):
-           print(type(batch))
-           print(batch.keys())
-           print('name', batch['name'])
+           #print(type(batch))
+           #print(batch.keys())
+           #print('name', batch['name'])
            xf,xt = batch['flair'], batch['t1ce']
-           print('min max', xf.min(), xf.max(), xt.min(), xt.max())
-           print('shape', xf.shape, xt.shape)
-           break
+           #print('min max', xf.min(), xf.max(), xt.min(), xt.max())
+           #print('shape', xf.shape, xt.shape)
+           #break
            y_hat = model.forward(xf.cuda(1),xt.cuda(1))
            save_pred_brats(y_hat.detach().cpu(), batch, './out', batch['name'][0])
 
@@ -158,20 +156,29 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 if __name__ == '__main__':
 
-    file_ckpt='/app/data/brain_comparison_bias_fix2enc/exp/biased_adj_FIX_bothLoss_e-4_b1_1gpu_polyepoch=61-val_loss=0.65-val_WT_dice=0.78_dice.ckpt'
+    file_ckpt='exp/FLIM_adj_FIX_bothLoss_e-4_b1_1gpu_poly_final.ckpt'
     run_experiment(
             datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
-            #datapath='/app/data/', batchsize=1, #for the brats we do not pass the whole path
             archpath='/app/data/archs/new_small/arch.json',
-            parampath='/app/data/test_bias_2enc/new_t1gd',
-            datatype='ours', modeltype='flimunet',use_bias=True,
+            parampath='/app/data/ms_files/bkp_models/2enc/new_model_old_t1_adjusted/',
+            datatype='ours', modeltype='flimunet',use_bias=False,
             checkpoint_file=file_ckpt)
 
-    file_ckpt='/app/data/bkp_sipaim_brain_comp/brain_comparison/exp/rigid_no_selectepoch=18-val_loss=0.33-val_WT_dice=0.78_dice.ckpt'
+    file_ckpt='exp/biased_bias_adj_FIX_bothLoss_e-4_b1_1gpu_poly_final.ckpt'
+    run_experiment(
+            datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            archpath='/app/data/archs/new_small/arch.json',
+            parampath='/app/data/ms_files/bkp_models/2enc_bias/biased_model_2encoders',
+            datatype='ours', modeltype='flimunet',use_bias=True,
+            checkpoint_file=file_ckpt)
+    
+
+    ## running for the brats and using non bias model
+    file_ckpt='exp/biased_adj_FIX_bothLoss_e-4_b1_1gpu_poly_final.ckpt'
     run_experiment(
             #datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
             datapath='/app/data/', batchsize=1, #for the brats we do not pass the whole path
             archpath='/app/data/archs/new_small/arch.json',
-            parampath='/app/data/test_bias_2enc/new_t1gd',
+            parampath='/app/data/ms_files/bkp_models/2enc_bias/biased_model_2encoders',
             datatype='brats', modeltype='flimunet',use_bias=False,
             checkpoint_file=file_ckpt)
