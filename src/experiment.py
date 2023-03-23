@@ -11,7 +11,7 @@ import torchio as tio
 
 from torch_snippets import *
 
-from model import UNet, UnetLoss, train_batch, validate_batch, IoU
+from model import UNet,UNet1enc, UnetLoss, train_batch, validate_batch, IoU
 from datas.dataloader import SegmDataset, ToTensor
 from datas.bratsdataset import BratsDataset, get_train_transforms, get_test_transforms
 from torch.utils.data import random_split, DataLoader
@@ -44,7 +44,6 @@ class LitModel(pl.LightningModule):
 
         self.class_weights = th.tensor([1, 1, 1, 1])
         self.max_e=100
-
 
     def poly_decay(self,i_epoch):
         return (1-(i_epoch/self.max_e))**0.9
@@ -117,6 +116,7 @@ class LitModel(pl.LightningModule):
 
             #print("sizes", xf.shape, xt1.shape, y.shape)
 
+        
         y_hat = self.forward(xf, xt1)
         y_hat = self._maybe_resize(y_hat, y.shape)
         #print("shapes", y_hat.shape, y.shape)
@@ -183,7 +183,7 @@ def save_predition(y_hat, batch, output_folder, count=0):
     nib.save(imgNib, output_path)
 
 
-def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers=5):
+def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers=5, oneEnc=False):
 
     if datatype == 'brats':
         dataset = BratsDataset( datapath, mode='train', model=model)
@@ -205,9 +205,9 @@ def getDataloaders(datatype, datapath, transform, batch_size, model, num_workers
 
 
     elif datatype == 'ours':
-        trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True, model=model)
-        val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True, model=model)
-        test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True, model=model)
+        trn_ds  = SegmDataset(datapath, transform=transform, train=True, gts=True, model=model,oneEnc=oneEnc)
+        val_ds  = SegmDataset(datapath, transform=transform, train=False, gts=True, model=model,oneEnc=oneEnc)
+        test_ds = SegmDataset(datapath, transform=transform, train=False, gts=True, test=True, model=model,oneEnc=oneEnc)
 
         trn_dl  = DataLoader(trn_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
         val_dl  = DataLoader(val_ds, batch_size=batch_size, num_workers=num_workers)
@@ -288,14 +288,41 @@ def getInsideModel(model='resunet', out_channels=4, archpath=None, parampath=Non
     return net, arch
 
 
+def getInsideModel1enc(model='resunet', out_channels=4, archpath=None, parampath=None, network_depth=64,
+                   train_encoder=False, use_bias=False):
+
+    
+    arch = None
+    if model == 'flimunet':
+
+        arch = utils.load_architecture(archpath)
+
+        #input_shape = [H, W, C] or [C]
+        encoder = utils.build_model(arch, input_shape=[2])
+
+        if parampath is not None:
+            encoder = utils.load_weights_from_lids_model(encoder, parampath)
+            if use_bias:
+                encoder  = load_first_layer_bias(encoder, parampath)
+
+        net = UNet1enc(encoder1=encoder, encoder2=None, out_channels=out_channels, train_encoder=train_encoder)
+
+    else:
+        raise NotImplementedError(f'there is no model  {model}')
+
+    return net, arch
+
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    parampath='/app/param',
                    datatype='brats', modeltype='flimunet',
                    n_epochs=30, exp_name='test', lr=2.5e-4,train_encoder=False,
-                   use_loss='CE', use_bias=False):
+                   use_loss='CE', use_bias=False, oneEnc=False):
 
-
-    insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath,
+    if oneEnc:
+        insidemodel,arch = getInsideModel1enc(modeltype, out_channels=4, archpath=archpath, parampath=parampath,
+                                 train_encoder=train_encoder,use_bias=use_bias)
+    else:
+        insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath,
                                  train_encoder=train_encoder, use_bias=use_bias)
 
     #print(insidemodel)
@@ -303,7 +330,7 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     model = LitModel(insidemodel, optim='adam', lr=lr, use_loss=use_loss, batch_size=batchsize)
 
     transform = transforms.Compose([ToTensor()])
-    trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=0)
+    trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=0, oneEnc=oneEnc)
     
     model_checkpoint = ModelCheckpoint(
         monitor='val_ALL_dice',
@@ -364,11 +391,10 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
 
 if __name__ == '__main__':
 
-    epochs   = 10 
+    epochs   = 1
 
     for i in range(1):
 
-        
         run_experiment(datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
                     archpath='/app/data/archs/new_small/arch.json',
                     parampath='/app/data/ms_files/bkp_models/2enc/new_model_old_t1_adjusted/',
@@ -383,6 +409,22 @@ if __name__ == '__main__':
                     datatype='ours', modeltype='flimunet',lr=2.5e-4,
                     n_epochs=int(epochs), exp_name='biased_bias_adj_FIX_bothLoss_e-4_b1_1gpu_poly',
                     train_encoder=False, use_loss="BOTH", use_bias=True)
+
+        # one encoder NO bias
+        run_experiment(datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/small_1encoder/arch.json',
+                    parampath='/app/data/ms_files/bkp_models/1enc/1_encoder/model_dez/',
+                    datatype='ours', modeltype='flimunet',lr=2.5e-4,
+                    n_epochs=int(epochs), exp_name='1encoder_dez',
+                    train_encoder=False, use_loss="BOTH", use_bias=False,oneEnc=True)
+
+        # one encoder bias
+        run_experiment(datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+                    archpath='/app/data/archs/small_1encoder/arch.json',
+                    parampath='/app/data/ms_files/bkp_models/1enc_bias/bias_1_encoder_new/bias_merge_selected/',
+                    datatype='ours', modeltype='flimunet',lr=2.5e-4,
+                    n_epochs=int(epochs), exp_name='1encoder_bias',
+                    train_encoder=False, use_loss="BOTH", use_bias=True,oneEnc=True)
         
 
 

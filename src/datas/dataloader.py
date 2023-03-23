@@ -26,10 +26,14 @@ def load_label_image(label_path, model):
         
     return label_image
 
-def load_image(image_path, model):
+def load_image(image_path, model, oneEnc=False):
     #print("loading i", image_path)
     if model == 'flimunet':
-        image = utils.load_image(str(image_path))
+        if oneEnc:
+            image = utils.load_image(str(image_path), lab=False)
+            image = np.expand_dims(image,axis=3)
+        else:
+            image = utils.load_image(str(image_path))
         image = image.transpose((3, 0, 1, 2))
         image = torch.from_numpy(image)
     elif model == 'standard_unet' or model == 'resunet':
@@ -42,7 +46,8 @@ def load_image(image_path, model):
 
 
 class SegmDataset(Dataset):
-    def __init__(self, root_dir, transform=None, train=True, gts=False, test=False, model='ours'):
+    def __init__(self, root_dir, transform=None, train=True, gts=False, test=False, model='ours',
+                 oneEnc=False):
         assert isinstance(root_dir, str) and len(root_dir) > 0,\
             "Invalid root_dir"
 
@@ -65,6 +70,8 @@ class SegmDataset(Dataset):
         self._load_dataset_info()
         self.model=model
 
+        self.one_encoder=oneEnc
+
     def __getitem__(self, index):
         flair_path = os.path.join(self._root_dir, "flair", f"{self._image_names[index]}.nii.gz")
         t1gd_path = os.path.join(self._root_dir, "t1gd", f"{self._image_names[index]}.nii.gz")
@@ -74,8 +81,8 @@ class SegmDataset(Dataset):
         else:
             label_path = os.path.join(self._root_dir, "markers", f"{self._markers_names[index]}.txt")
     
-        flair_img = load_image(flair_path, self.model)
-        t1gd_img = load_image(t1gd_path, self.model)
+        flair_img = load_image(flair_path, self.model, self.one_encoder)
+        t1gd_img = load_image(t1gd_path, self.model, self.one_encoder)
 
         
         label_image = np.array(load_label_image(label_path, self.model))

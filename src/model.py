@@ -326,3 +326,131 @@ def validate_batch(model, data, criterion, device='cpu', use_loss='CE'):
     dice   = multiclass_dice(logits, y)
 
     return loss.item(), acc.item(), dice
+
+
+class UNet1enc(nn.Module):
+    def __init__(self, encoder1, encoder2, out_channels=2,
+                 train_encoder=False):
+        super().__init__()
+
+        self.train_encoder=train_encoder
+
+        
+        #111111
+        self.encoder1 = encoder1
+
+        encoder_block_names1, block_out_channels1 = _layers_before_downscale(encoder1)
+
+        layer_names = {layer_name: layer_name for layer_name in encoder_block_names1[:-1]}
+        layer_names[encoder_block_names1[-1]] = "bottleneck"
+
+        self._encoder_blocks1 = IntermediateLayerGetter(self.encoder1, layer_names)
+
+        
+        '''    
+        #2222222
+        self.encoder2 = encoder2
+
+        encoder_block_names2, block_out_channels2 = _layers_before_downscale(encoder2)
+
+        layer_names = {layer_name: layer_name for layer_name in encoder_block_names2[:-1]}
+        layer_names[encoder_block_names2[-1]] = "bottleneck"
+
+        self._encoder_blocks2 = IntermediateLayerGetter(self.encoder2, layer_names)
+        '''
+        
+        if self.train_encoder == False:
+            self.encoder_eval()
+        else:
+            self.freeze_mnorm()
+        
+        
+        self.decoder = nn.Module()
+        
+        print(f"block output channels {block_out_channels1}")
+        
+        block_out_channels1 = [i*1 for i in block_out_channels1]
+        
+        print(f"block output channels {block_out_channels1}")
+        
+        bottleneck_out_channels = block_out_channels1[-1] * 4 
+        self.decoder.add_module("conv_bottleneck", conv(block_out_channels1[-1], bottleneck_out_channels))
+
+        last_conv_out_channels = bottleneck_out_channels
+        for i, _out_channels in enumerate(reversed(block_out_channels1[:-1])):
+
+            self.decoder.add_module(f"up_conv{i}", up_conv(last_conv_out_channels, last_conv_out_channels//2))
+            self.decoder.add_module(f"conv{i}", conv(last_conv_out_channels//2 + _out_channels, _out_channels))
+
+            last_conv_out_channels = _out_channels
+        
+        self.decoder.add_module("output_layer", nn.Conv3d(last_conv_out_channels, out_channels, kernel_size=1))
+
+    def freeze_mnorm(self):
+        for param in self.encoder1.named_parameters():
+            #print("param", param)
+            if 'm-norm' in param[0]:
+                param[1].requires_grad = False
+        #for param in self.encoder2.named_parameters():
+        #    if 'm-norm' in param[0]:
+        #        param[1].requires_grad = False
+
+    def encoder_eval(self):
+        for param in self.encoder1.parameters():
+            #print("param", param)
+            param.requires_grad = False
+        #for param in self.encoder2.parameters():
+        #    param.requires_grad = False
+
+    def forward(self, x1, x2):
+
+        x = torch.cat([x1, x2], dim=1) 
+
+        if self.train_encoder==False:
+            self.encoder1.eval()
+            #self.encoder2.eval()
+
+            #print(f"testing {self.training} {self.encoder1.training} {self.encoder2.training}")
+        
+            with torch.no_grad():
+                encoder_outputs1 = self._encoder_blocks1(x)
+                #encoder_outputs2 = self._encoder_blocks2(x2)
+
+        else:
+            encoder_outputs1 = self._encoder_blocks1(x)
+            #encoder_outputs2 = self._encoder_blocks2(x2)
+
+        block_names = reversed(encoder_outputs1.keys())
+
+        block_name = next(block_names)
+        bottleneck1 = encoder_outputs1[block_name]
+        #bottleneck2 = encoder_outputs2[block_name]
+
+        #print(f'bneck1.shape {bottleneck1.shape} bneck2.shape {bottleneck2.shape}')
+        
+        #x = torch.cat([bottleneck1, bottleneck2], dim=1)
+        x = bottleneck1 
+        #print(f'x.shape {x.shape}')
+            
+            
+        for name, layer in self.decoder.named_children():
+            if "up_conv" in name:
+                block_name = next(block_names)
+                block_output1 = encoder_outputs1[block_name]
+                #block_output2 = encoder_outputs2[block_name]
+                x = layer(x)
+                #block_output = torch.cat([block_output1, block_output2], dim=1)
+                block_output = block_output1
+                if (not x.shape == block_output):
+                    #caso tenha problemas com a diferença de tamanhos
+                    diff=np.array(x.shape) - np.array(block_output.shape)
+                    p1d = (0, diff[4], 0, diff[3], 0, diff[2], 0, 0, 0, 0)
+                    block_output = nn.functional.pad(block_output, p1d, "constant", 0)
+                    
+                x = torch.cat([x, block_output], dim=1)
+                #print(f'name {name} layer {layer}')
+                #print(f'x.shape {x.shape}, b1.shape {block_output1.shape} b2.shape {block_output2.shape}')
+            else:
+                x = layer(x)
+
+        return x

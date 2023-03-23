@@ -25,7 +25,7 @@ from monai.visualize.img2tensorboard import add_animated_gif
 import nibabel as nib
 import sys
 
-from experiment import getInsideModel, LitModel, getDataloaders
+from experiment import getInsideModel, getInsideModel1enc, LitModel, getDataloaders
 
 
 
@@ -89,15 +89,19 @@ def getDataloaders_brats(datapath, transform, batch_size, model, num_workers=5):
 
 def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
                    parampath='brain3d-param-small', n_epochs=1, exp_name='test',
-                   checkpoint_file='model.ckpt',modeltype='flimunet', datatype='ours', use_bias=False):
+                   checkpoint_file='model.ckpt',modeltype='flimunet', datatype='ours', use_bias=False, oneEnc=True):
     
-    insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath, use_bias=use_bias)
+
+    if oneEnc:
+        insidemodel,arch = getInsideModel1enc(modeltype, out_channels=4, archpath=archpath, parampath=parampath, use_bias=use_bias)
+    else:    
+        insidemodel,arch = getInsideModel(modeltype, out_channels=4, archpath=archpath, parampath=parampath, use_bias=use_bias)
 
     model = LitModel(insidemodel, optim='adam', lr=2e-4)
 
     transform = transforms.Compose([ToTensor()])
     if datatype=='ours':
-        trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8)
+        trn_dl, val_dl, test_dl = getDataloaders(datatype, datapath, transform, batchsize, modeltype, num_workers=8, oneEnc=oneEnc)
     elif datatype=='brats':
         test_dl = getDataloaders_brats(datapath, transform, batchsize, modeltype, num_workers=8)
 
@@ -126,6 +130,8 @@ def run_experiment(datapath='/app/data', batchsize=1, archpath='/app/arch.json',
     #print("state_dict keys", checkpoint['state_dict'].keys())
     model.load_state_dict(checkpoint['state_dict'])
 
+    if datatype == 'ours':
+        trainer.test(model, test_dl)
     model=model.cuda(1)
 
 
@@ -181,4 +187,23 @@ if __name__ == '__main__':
             archpath='/app/data/archs/new_small/arch.json',
             parampath='/app/data/ms_files/bkp_models/2enc_bias/biased_model_2encoders',
             datatype='brats', modeltype='flimunet',use_bias=False,
+            checkpoint_file=file_ckpt)
+
+
+    #one encoder NO bias
+    file_ckpt='exp/1encoder_dez_final.ckpt'
+    run_experiment(
+            datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            archpath='/app/data/archs/small_1encoder/arch.json',
+            parampath='/app/data/ms_files/bkp_models/1enc/1_encoder/model_dez/',
+            datatype='ours', modeltype='flimunet',use_bias=False,oneEnc=True,
+            checkpoint_file=file_ckpt)
+
+    #one encoder WITH bias
+    file_ckpt='exp/1encoder_bias_final.ckpt'
+    run_experiment(
+            datapath='/app/data/glioblastoma/rigid/100',batchsize=1,
+            archpath='/app/data/archs/small_1encoder/arch.json',
+            parampath='/app/data/ms_files/bkp_models/1enc_bias/bias_1_encoder_new/bias_merge_selected/',
+            datatype='ours', modeltype='flimunet',use_bias=True,oneEnc=True,
             checkpoint_file=file_ckpt)
